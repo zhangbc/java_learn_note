@@ -10,6 +10,7 @@ import java.awt.*;
 public class CheckerApplet extends Applet {
     int squareSize = 50;
 
+    @Override
     public void init() {
         String squareSizeParam = getParameter("squareSize");
         parseSquareSize(squareSizeParam);
@@ -32,5 +33,6 @@ public class CheckerApplet extends Applet {
         }
     }
     private Color parseColor(String param) {return null;}
+    @Override
     public void paint(Graphics gp) {}
 }

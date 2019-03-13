@@ -8,6 +8,7 @@ import java.awt.*;
  * @date 2019/3/11 13:20
  */
 public class HelloWorldApplet extends Applet {
+    @Override
     public void paint(Graphics graphics) {
         graphics.drawString("Hello World", 25, 50);
     }

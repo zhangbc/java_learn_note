@@ -9,6 +9,7 @@ import java.net.SocketTimeoutException;
 import java.lang.Thread;
 
 /**
+ * Socket编程--服务端实例
  * @author 张伯成
  * @date 2019/3/7 15:09
  */
@@ -30,6 +31,7 @@ public class GreetingServer extends Thread {
         serverSocket.setSoTimeout(10000);
     }
 
+    @Override
     public void run() {
         while (true) {
             try {

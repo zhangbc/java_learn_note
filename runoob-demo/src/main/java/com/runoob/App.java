@@ -2,7 +2,7 @@ package com.runoob;
 
 /**
  * Hello world!
- *
+ * @author 张伯成
  */
 public class App 
 {

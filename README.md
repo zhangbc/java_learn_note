@@ -1,5 +1,7 @@
 # java_project #
 
-#### 菜鸟编程学习之旅 ####
+## 菜鸟教程-Java Coding学习笔记 ##
 
-#### spring-boot入门 ####
+## 菜鸟教程-Java实例 ##
+
+## spring-boot入门 ##
