@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.util.Date;
 
 /**
- * 文件目录操作实例
+ * Java文件目录操作实例
  * @author zhangbocheng
  * @version v1.0
  * @date 2019/3/14 00:39
