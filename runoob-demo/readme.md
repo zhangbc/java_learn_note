@@ -83,3 +83,11 @@ $ java com.runoob.HelloWorld
 >> 13. Java 实例 – for 和 foreach循环使用
 >> 14. Java 实例 – Varargs 可变参数使用
 >> 15. Java 实例 – 重载(overloading)方法中使用 Varargs
+
+## 打印图形 ##
+>> 1. Java 实例 – 打印菱形
+>> 2. Java 实例 – 九九乘法表
+>> 3. Java 实例 – 打印三角形
+>> 4. Java 实例 – 打印倒立的三角形
+>> 5. Java 实例 – 打印平行四边形
+>> 6. Java 实例 – 打印矩形
