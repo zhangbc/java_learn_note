@@ -65,3 +65,20 @@ $ java com.runoob.HelloWorld
 >> 2. Java 实例 - 获取当前时间
 >> 3. Java 实例 - 获取年份、月份等
 >> 4. Java 实例 - 时间戳转换成时间
+
+## Java 方法 ##
+>> 1. Java 实例 – 方法重载
+>> 2. Java 实例 – 输出数组元素
+>> 3. Java 实例 – 汉诺塔算法
+>> 4. Java 实例 – 斐波那契数列
+>> 5. Java 实例 – 阶乘
+>> 6. Java 实例 – 方法覆盖
+>> 7. Java 实例 – instanceOf 关键字用法
+>> 8. Java 实例 – break 关键字用法
+>> 9. Java 实例 – continue 关键字用法
+>> 10. Java 实例 – 标签(Label)
+>> 11. Java 实例 – enum 和 switch 语句使用
+>> 12. Java 实例 – Enum（枚举）构造函数及方法的使用
+>> 13. Java 实例 – for 和 foreach循环使用
+>> 14. Java 实例 – Varargs 可变参数使用
+>> 15. Java 实例 – 重载(overloading)方法中使用 Varargs
