@@ -137,7 +137,7 @@ $ java com.runoob.HelloWorld
 >> 8. Java 实例 - 链试异常
 >> 9. Java 实例 - 自定义异常
 
-## TODO: Java 数据结构 ##
+## Java 数据结构 ##
 >> 1. Java 实例 – 数字求和运算
 >> 2. Java 实例 – 利用堆栈将中缀表达式转换成后缀
 >> 3. Java 实例 – 在链表（LinkedList）的开头和结
