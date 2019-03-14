@@ -152,3 +152,23 @@ $ java com.runoob.HelloWorld
 >> 12. Java 实例 – 获取向量的最大元素
 >> 13. Java 实例 – 链表修改
 >> 14. Java 实例 – 旋转向量
+
+## Java 集合 ##
+>> 1. Java 实例 – 数组转集合
+>> 2. Java 实例 – 集合比较
+>> 3. Java 实例 – HashMap遍历
+>> 4. Java 实例 – 集合长度
+>> 5. Java 实例 – 集合打乱顺序
+>> 6. Java 实例 – 集合遍历
+>> 7. Java 实例 – 集合反转
+>> 8. Java 实例 – 删除集合中指定元素
+>> 9. Java 实例 – 只读集合
+>> 10. Java 实例 – 集合输出
+>> 11. Java 实例 – 集合转数组
+>> 12. Java 实例 – List 循环移动元素
+>> 13. Java 实例 – 查找 List 中的最大最小值
+>> 14. Java 实例 – 遍历 HashTable 的键值
+>> 15. Java 实例 – 使用 Enumeration 遍历 HashTable
+>> 16. Java 实例 – 集合中添加不同类型元素
+>> 17. Java 实例 – List 元素替换
+>> 18. Java 实例 – List 截取
