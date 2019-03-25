@@ -1,7 +1,5 @@
 package com.instance;
 
-import org.omg.PortableServer.THREAD_POLICY_ID;
-
 /**
  * Java 线程
  * @author zhangbocheng
@@ -196,3 +194,4 @@ class ThreadPriorities extends Thread {
         }
     }
 }
+
