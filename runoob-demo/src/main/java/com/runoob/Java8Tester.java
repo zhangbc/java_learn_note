@@ -6,7 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * JAVA8 编程风格
+ * JAVA8新特性
  * @author zhangbocheng
  * @version v1.0
  * @date 2019/3/28 20:43
