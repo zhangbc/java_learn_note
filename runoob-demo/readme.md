@@ -204,4 +204,3 @@ $ java com.runoob.HelloWorld
 >> 11. Java 实例 – 获取所有线程
 >> 12. Java 实例 – 查看线程优先级
 >> 13. Java 实例 – 中断线程
->>>>>>> dev
