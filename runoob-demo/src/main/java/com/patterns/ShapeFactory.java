@@ -14,11 +14,12 @@ public class ShapeFactory {
         }
 
         String[] instances = new String[] {"CIRCLE", "RECTANGLE", "SQUARE"};
+        int idx = instances.length - 1;
         if (shapeType.equalsIgnoreCase(instances[0])) {
             return new Circle();
         } else if (shapeType.equalsIgnoreCase(instances[1])) {
             return new Rectangle();
-        } else if (shapeType.equalsIgnoreCase(instances[2])) {
+        } else if (shapeType.equalsIgnoreCase(instances[idx])) {
             return new Square();
         }
 

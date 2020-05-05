@@ -8,5 +8,8 @@ package com.patterns;
  * @date 2020/5/4 22:12
  */
 public interface Color {
+    /**
+     * 填充方法
+     */
     void fill();
 }

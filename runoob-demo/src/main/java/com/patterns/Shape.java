@@ -9,5 +9,8 @@ package com.patterns;
  * @date 2020/5/4 21:43
  */
 public interface Shape {
+    /**
+     * 画图方法
+     */
     void draw();
 }

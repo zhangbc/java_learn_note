@@ -20,7 +20,7 @@ public class AbstractShapeFactory extends AbstractFactory {
             return new Circle();
         } else if (shapeType.equalsIgnoreCase(instances[1])) {
             return new Rectangle();
-        } else if (shapeType.equalsIgnoreCase(instances[2])) {
+        } else if (shapeType.equalsIgnoreCase(instances[instances.length - 1])) {
             return new Square();
         }
 

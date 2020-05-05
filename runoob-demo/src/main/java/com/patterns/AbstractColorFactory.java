@@ -25,7 +25,7 @@ public class AbstractColorFactory extends AbstractFactory {
             return new Red();
         } else if (color.equalsIgnoreCase(instances[1])) {
             return new Green();
-        } else if (color.equalsIgnoreCase(instances[2])) {
+        } else if (color.equalsIgnoreCase(instances[instances.length - 1])) {
             return new Blue();
         }
 

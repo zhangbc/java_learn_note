@@ -354,7 +354,7 @@ class ArrayUnionSet {
     }
 
     public static String[] union(String[] arr1, String[] arr2) {
-        Set<String> set = new HashSet<String>();
+        Set<String> set = new HashSet<>();
         for (String str: arr1) {
             set.add(str);
         }
