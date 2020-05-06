@@ -235,7 +235,7 @@ $ java com.runoob.HelloWorld
 
 > 1. 适配器模式（`Adapter Pattern`）
 > 2. 桥接模式（`Bridge Pattern`）
-> 3. 过滤器模式（`Filter、Criteria Pattern`）
+> 3. 过滤器模式（`Filter、Criteria Pattern`）（❌）
 > 4. 组合模式（`Composite Pattern`）
 > 5. 装饰器模式（`Decorator Pattern`）
 > 6. 外观模式（`Facade Pattern`）
@@ -253,7 +253,7 @@ $ java com.runoob.HelloWorld
 > 6. 备忘录模式（`Memento Pattern`）
 > 7. 观察者模式（`Observer Pattern`）
 > 8. 状态模式（`State Pattern`）
-> 9. 空对象模式（`Null Object Pattern`）
+> 9. 空对象模式（`Null Object Pattern`）（❌）
 > 10. 策略模式（`Strategy Pattern`）
 > 11. 模板模式（`Template Pattern`）
 > 12. 访问者模式（`Visitor Pattern`）
