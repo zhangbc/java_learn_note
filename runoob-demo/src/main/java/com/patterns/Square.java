@@ -3,6 +3,7 @@ package com.patterns;
 /**
  * 工厂模式-正方形实体类(2)
  * 抽象工厂模式-正方形实体类(2)
+ * 外观模式-正方形实体类(2)
  *
  * @author zhangbocheng
  * @version v1.0
