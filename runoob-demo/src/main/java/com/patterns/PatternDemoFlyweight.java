@@ -1,7 +1,5 @@
 package com.patterns;
 
-import java.util.Random;
-
 /**
  * 享元模式-使用工厂获取实体类的对象(4)
  *

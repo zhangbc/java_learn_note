@@ -19,6 +19,8 @@ public class PatternDemoComposite {
 
         ceo.add(headMarketing);
         ceo.add(headSales);
+        ceo.add(headMarketing);
+        ceo.remove(headMarketing);
         headMarketing.add(clerk1);
         headMarketing.add(clerk2);
         headSales.add(salesExecutive1);
