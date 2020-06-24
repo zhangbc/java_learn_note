@@ -11,15 +11,15 @@ public class PatternDemoStrategy {
     public static void main(String[] args) {
 
         ContextStrategy context = new ContextStrategy(new OperationAdd());
-        System.out.println("10 + 5 = " + context.excuteStrategy(10, 5));
+        System.out.println("10 + 5 = " + context.executeStrategy(10, 5));
 
         context = new ContextStrategy(new OperationSubtract());
-        System.out.println("10 - 5 = " + context.excuteStrategy(10, 5));
+        System.out.println("10 - 5 = " + context.executeStrategy(10, 5));
 
         context = new ContextStrategy(new OperationMultiply());
-        System.out.println("10 * 5 = " + context.excuteStrategy(10, 5));
+        System.out.println("10 * 5 = " + context.executeStrategy(10, 5));
 
         context = new ContextStrategy(new OperationDivision());
-        System.out.println("10 / 5 = " + context.excuteStrategy(10, 5));
+        System.out.println("10 / 5 = " + context.executeStrategy(10, 5));
     }
 }

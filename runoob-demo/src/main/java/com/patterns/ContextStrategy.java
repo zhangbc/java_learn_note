@@ -15,7 +15,7 @@ public class ContextStrategy {
         this.strategy = strategy;
     }
 
-    public int excuteStrategy(int num1, int num2) {
+    public int executeStrategy(int num1, int num2) {
         return strategy.doOperation(num1, num2);
     }
 }
