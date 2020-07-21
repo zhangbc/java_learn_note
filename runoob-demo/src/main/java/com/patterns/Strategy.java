@@ -8,5 +8,11 @@ package com.patterns;
  * @date 2020/5/13 13:35
  */
 public interface Strategy {
+    /**
+     * 操作运算
+     * @param num1 操作数1
+     * @param num2 操作数2
+     * @return 返回结果
+     */
     int doOperation(int num1, int num2);
 }
