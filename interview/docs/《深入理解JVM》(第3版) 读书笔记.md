@@ -34,8 +34,7 @@
 
 - 程序计数器（`Program Counter Register`） 是一块较小的内存空间， 可以看作是当前线程所执行的字节码的行号指示器。   在Java虚拟机的概念模型里， **字节码解释器**工作时就是通过改变这个计数器的值来选取下一条需要执行的字节码指令， 它是程序控制流的指示器， 分支、 循环、 跳转、 异常处理、 线程恢复等基础功能都需要依赖这个计数器来完成。  
 
-- `Java` 虚拟机栈（`Java Virtual Machine Stack`） 也是线程私有的， 它的生命周期
-  与线程相同。 虚拟机栈描述的是 `Java` 方法执行的线程内存模型： 每个方法被执行的时候， `Java` 虚拟机都会同步创建一个栈帧（`Stack Frame`）用于存储局部变量表、 操作数栈、 动态连接、 方法出口等信息。  
+- `Java` 虚拟机栈（`Java Virtual Machine Stack`） 也是线程私有的， 它的生命周期与线程相同。 虚拟机栈描述的是 `Java` 方法执行的线程内存模型： 每个方法被执行的时候， `Java` 虚拟机都会同步创建一个栈帧（`Stack Frame`）用于存储局部变量表、 操作数栈、 动态连接、 方法出口等信息。  
 
 > `Java` 虚拟机基本数据类型（`boolean`、`byte`、`char`、`short`、`int`、`float`、`long`、 `double`） 、 对象引用等数据类型在局部变量表中的存储空间以局部变量槽（`Slot`） 来表示， 其中64位长度的 `long` 和 `double` 类型的数据会占用两个变量槽， 其余的数据类型只占用一个。 局部变量表所需的内存空间在编译期间完成分配， 当进入一个方法时， 这个方法需要在栈帧中分配多大的局部变量空间是完全确定的， 在方法运行期间不会改变局部变量表的大小。   
 >
@@ -1176,4 +1175,1321 @@ Java HotSpot(TM) 64-Bit Server VM 18.9 (build 11.0.6+8-LTS, mixed mode)
 #### 9，实战：内存分配与回收策略
 
 `Java` 技术体系的自动内存管理，**最根本的目标**是自动化地解决两个问题：自动给对象分配内存以及自动回收分配给对象的内存。
+
+大多数情况下，对象在新生代`Eden`区中分配。当`Eden`区没有足够空间进行分配时，虚拟机将发起一次 `Minor GC`。
+
+- 代码清单3-4 新生代Minor GC
+
+```java
+package com.jvm;
+
+/**
+ * 新生代Minor GC
+ * VM Args： -verbose:gc -Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/10 00:45
+ */
+public class MinorGC {
+
+    private static final int _1MB = 1024 * 1024;
+
+    public static void testAllocation() {
+        byte[] allocation1, allocation2, allocation3, allocation4;
+        allocation1 = new byte[2 * _1MB];
+        allocation2 = new byte[2 * _1MB];
+        allocation3 = new byte[2 * _1MB];
+        // 出现一次 Minor GC
+        allocation4 = new byte[4 * _1MB];
+    }
+
+    public static void main(String[] args) {
+        testAllocation();
+    }
+}
+```
+
+运行结果：
+
+```bash
+Heap
+ PSYoungGen      total 9216K, used 7324K [0x00000007bf600000, 0x00000007c0000000, 0x00000007c0000000)
+  eden space 8192K, 89% used [0x00000007bf600000,0x00000007bfd27088,0x00000007bfe00000)
+  from space 1024K, 0% used [0x00000007bff00000,0x00000007bff00000,0x00000007c0000000)
+  to   space 1024K, 0% used [0x00000007bfe00000,0x00000007bfe00000,0x00000007bff00000)
+ ParOldGen       total 10240K, used 4096K [0x00000007bec00000, 0x00000007bf600000, 0x00000007bf600000)
+  object space 10240K, 40% used [0x00000007bec00000,0x00000007bf000010,0x00000007bf600000)
+ Metaspace       used 2673K, capacity 4486K, committed 4864K, reserved 1056768K
+  class space    used 287K, capacity 386K, committed 512K, reserved 1048576K
+```
+
+`HotSpot` 虚拟机提供了 `-XX：PretenureSizeThreshold` 参数，指定大于该设置值的对象直接在老年代分配，这样做的目的就是避免在`Eden`区及两个`Survivor`区之间来回复制，产生大量的内存复制操作。
+
+**注意**：`-XX：PretenureSizeThreshold` 参数只对 `Serial` 和 `ParNew` 两款新生代收集器有效，`HotSpot` 的其他新生代收集器，如 `Parallel Scavenge` 并不支持这个参数，如果必须使用此参数进行调优，可考虑 `ParNew` 加 `CMS` 的收集器组合。
+
+代码清单3-5 大对象直接进入老年代 GC
+
+```java
+package com.jvm;
+
+/**
+ * 大对象直接进入老年代 GC
+ * VM Args： -verbose:gc -Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/10 00:45
+ */
+public class PretenureSizeThresholdGC {
+
+    private static final int _1MB = 1024 * 1024;
+
+    public static void testPretenureSizeThreshold() {
+        byte[] allocation;
+        // 直接分配在老年代中
+        allocation = new byte[4 * _1MB];
+    }
+
+    public static void main(String[] args) {
+        testPretenureSizeThreshold();
+    }
+}
+```
+
+运行结果：
+
+```bash
+Heap
+ PSYoungGen      total 9216K, used 5276K [0x00000007bf600000, 0x00000007c0000000, 0x00000007c0000000)
+  eden space 8192K, 64% used [0x00000007bf600000,0x00000007bfb27070,0x00000007bfe00000)
+  from space 1024K, 0% used [0x00000007bff00000,0x00000007bff00000,0x00000007c0000000)
+  to   space 1024K, 0% used [0x00000007bfe00000,0x00000007bfe00000,0x00000007bff00000)
+ ParOldGen       total 10240K, used 0K [0x00000007bec00000, 0x00000007bf600000, 0x00000007bf600000)
+  object space 10240K, 0% used [0x00000007bec00000,0x00000007bec00000,0x00000007bf600000)
+ Metaspace       used 2671K, capacity 4486K, committed 4864K, reserved 1056768K
+  class space    used 287K, capacity 386K, committed 512K, reserved 1048576K
+```
+
+对象通常在`Eden`区里诞生，如果经过第一次 `Minor GC` 后仍然存活，并且能被 `Survivor` 容纳的话，该对象会被移动到 `Survivor` 空间中，并且将其对象年龄设为1岁。对象在 `Survivor` 区中每熬过一次 `Minor GC`，年龄就增加1岁，当它的年龄增加到一定程 度（默认为15），就会被晋升到老年代中。对象晋升老年代的年龄阈值，可以通过参数 `-XX： MaxTenuringThreshold`设置。
+
+- 代码清单3-6 长期存活的对象进入老年代 GC
+
+```java
+package com.jvm;
+
+/**
+ * 长期存活的对象进入老年代 GC
+ * VM Args： -verbose:gc -Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8
+ * -XX:MaxTenuringThreshold=1 -XX:+PrintTenuringDistribution
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/10 00:45
+ */
+public class TenuringThresholdGC {
+
+    private static final int _1MB = 1024 * 1024;
+
+    @SuppressWarnings("unused")
+    public static void testTenuringThreshold() {
+        byte[] allocation1, allocation2, allocation3;
+        allocation1 = new byte[_1MB / 4];
+        allocation2 = new byte[4 * _1MB];
+        allocation3 = new byte[4 * _1MB];
+        allocation3 = null;
+        allocation3 = new byte[4 * _1MB];
+    }
+
+    public static void main(String[] args) {
+        testTenuringThreshold();
+    }
+}
+```
+
+运行结果：
+
+1）以`-verbose:gc -Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8  -XX:MaxTenuringThreshold=1 -XX:+PrintTenuringDistribution`执行
+
+```bash
+Heap
+ PSYoungGen      total 9216K, used 5532K [0x00000007bf600000, 0x00000007c0000000, 0x00000007c0000000)
+  eden space 8192K, 67% used [0x00000007bf600000,0x00000007bfb670b0,0x00000007bfe00000)
+  from space 1024K, 0% used [0x00000007bff00000,0x00000007bff00000,0x00000007c0000000)
+  to   space 1024K, 0% used [0x00000007bfe00000,0x00000007bfe00000,0x00000007bff00000)
+ ParOldGen       total 10240K, used 8192K [0x00000007bec00000, 0x00000007bf600000, 0x00000007bf600000)
+  object space 10240K, 80% used [0x00000007bec00000,0x00000007bf400020,0x00000007bf600000)
+ Metaspace       used 2673K, capacity 4486K, committed 4864K, reserved 1056768K
+  class space    used 287K, capacity 386K, committed 512K, reserved 1048576K
+```
+
+2）以`-verbose:gc -Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8  -XX:MaxTenuringThreshold=15 -XX:+PrintTenuringDistribution`执行
+
+```bash
+Heap
+ PSYoungGen      total 9216K, used 5532K [0x00000007bf600000, 0x00000007c0000000, 0x00000007c0000000)
+  eden space 8192K, 67% used [0x00000007bf600000,0x00000007bfb670b0,0x00000007bfe00000)
+  from space 1024K, 0% used [0x00000007bff00000,0x00000007bff00000,0x00000007c0000000)
+  to   space 1024K, 0% used [0x00000007bfe00000,0x00000007bfe00000,0x00000007bff00000)
+ ParOldGen       total 10240K, used 8192K [0x00000007bec00000, 0x00000007bf600000, 0x00000007bf600000)
+  object space 10240K, 80% used [0x00000007bec00000,0x00000007bf400020,0x00000007bf600000)
+ Metaspace       used 2669K, capacity 4486K, committed 4864K, reserved 1056768K
+  class space    used 287K, capacity 386K, committed 512K, reserved 1048576K
+```
+
+- 代码清单3-7 动态对象年龄判定 GC
+
+```java
+package com.jvm;
+
+/**
+ * 动态对象年龄判定 GC
+ * VM Args： -verbose:gc -Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8
+ * -XX:MaxTenuringThreshold=15 -XX:+PrintTenuringDistribution
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/10 00:45
+ */
+public class TenuringAgeThresholdGC {
+
+    private static final int _1MB = 1024 * 1024;
+
+    @SuppressWarnings("unused")
+    public static void testTenuringThreshold() {
+        byte[] allocation1, allocation2, allocation3, allocation4;
+        allocation1 = new byte[_1MB / 4];
+        allocation2 = new byte[_1MB / 4];
+        allocation3 = new byte[4 * _1MB];
+        allocation4 = new byte[4 * _1MB];
+        allocation4 = null;
+        allocation4 = new byte[4 * _1MB];
+    }
+
+    public static void main(String[] args) {
+        testTenuringThreshold();
+    }
+}
+```
+
+运行结果：
+
+```bash
+Heap
+ PSYoungGen      total 9216K, used 5788K [0x00000007bf600000, 0x00000007c0000000, 0x00000007c0000000)
+  eden space 8192K, 70% used [0x00000007bf600000,0x00000007bfba7128,0x00000007bfe00000)
+  from space 1024K, 0% used [0x00000007bff00000,0x00000007bff00000,0x00000007c0000000)
+  to   space 1024K, 0% used [0x00000007bfe00000,0x00000007bfe00000,0x00000007bff00000)
+ ParOldGen       total 10240K, used 8192K [0x00000007bec00000, 0x00000007bf600000, 0x00000007bf600000)
+  object space 10240K, 80% used [0x00000007bec00000,0x00000007bf400020,0x00000007bf600000)
+ Metaspace       used 2673K, capacity 4486K, committed 4864K, reserved 1056768K
+  class space    used 287K, capacity 386K, committed 512K, reserved 1048576K
+```
+
+- 代码清单3-8 动态对象年龄判定 GC
+
+```java
+package com.jvm;
+
+/**
+ * 空间分配担保
+ * VM Args：-Xms20M -Xmx20M -Xmn10M -XX:+PrintGCDetails -XX:SurvivorRatio=8
+ * -XX:-Handle-PromotionFailure (jdk1.8运行有误)
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/10 00:45
+ */
+public class HandlePromotionGC {
+
+    private static final int _1MB = 1024 * 1024;
+
+    @SuppressWarnings("unused")
+    public static void testHandlePromotion() {
+        byte[] allocation1, allocation2, allocation3, allocation4, allocation5, allocation6, allocation7;
+        allocation1 = new byte[2 * _1MB];
+        allocation2 = new byte[2 * _1MB];
+        allocation3 = new byte[2 * _1MB];
+        allocation1 = null;
+        allocation4 = new byte[2 * _1MB];
+        allocation5 = new byte[2 * _1MB];
+        allocation6 = new byte[2 * _1MB];
+        allocation4 = null;
+        allocation5 = null;
+        allocation6 = null;
+        allocation7 = new byte[2 * _1MB];
+    }
+
+    public static void main(String[] args) {
+        testHandlePromotion();
+    }
+}
+```
+
+在 `JDK 6 Update 24` 之后，`-XX：HandlePromotionFailure` 参数不会再影响到虚拟机的空间分配担保策略，观察 `OpenJDK` 中的源码变化，虽然源码中还定义了`-XX：HandlePromotionFailure` 参数，但是在实际虚拟机中已经不会再使用它。`JDK 6 Update 24` 之后的规则变为只要老年代的连续空间大于新生代对象总大小或者历次晋升的平均大小，就会进行 `Minor GC`，否则将进行 `Full GC`。
+
+## 四，虚拟机性能监控、故障处理工具
+
+#### 1，基础故障处理工具
+
+根据软件可用性和授权的不同，可以把用于监视虚拟机运行状态和进行故障处理的工具划分：
+
+> **
+>
+> 商业授权工具**：主要是`JMC`（`Java Mission Control`）及它要使用到的`JFR`（`Java Flight Recorder`），`JMC`这个原本来自于`JRockit` 的运维监控套件从 `JDK 7 Update 40`开始就被集成到`OracleJDK`中，`JDK 11`之前都无须独立下载，但是在商业环境中使用它则是要付费的；
+>
+> **正式支持工具**：这一类工具属于被长期支持的工具，不同平台、不同版本的`JDK`之间，这类工具可能会略有差异，但是不会出现某一个工具突然消失的情况；
+>
+> **实验性工具**：这一类工具在它们的使用说明中被声明为“没有技术支持，并且是实验性质 的”（`Unsupported and Experimental`）产品，日后可能会转正，也可能会在某个`JDK`版本中无声无息 消失。但事实上它们通常都非常稳定而且功能强大，也能在处理应用程序性能问题、定位故障时发挥很大的作用。
+
+- **jps**：虚拟机进程状况工具
+
+`jps`的作用是列出正在运行的虚拟机进程，并显示虚拟机执行主类（`Main Class`，`main()`函数所在的类）名称以及这些进程的本地虚拟机唯一 `ID`（`LVMID`，`Local Virtual Machine Identifier`）。
+
+`jps`命令格式：
+
+```bash
+jps [options] [hostid] 
+```
+
+基本使用实例：
+
+```bash
+douqu@iZ2ze0blc58weob3oi45cjZ:~$ jps -l
+29203 douqu_channel.jar
+24500 douqu_console.jar
+16029 sun.tools.jps.Jps
+```
+
+<center>表4-1  jps工具主要选项</center>
+
+| 选项 | 作用                                                   |
+| :--: | ------------------------------------------------------ |
+|  -q  | 只输出`LVMID`，省略主类的名称                          |
+|  -m  | 输出虚拟机进程启动时传递给主类`main()`函数的参数       |
+|  -l  | 输出主类的全名，如果进程执行的`JAR`包，则输出`JAR`路径 |
+|  -v  | 输出虚拟机进程启动时的`JVM`参数                        |
+
+- **jstat**：虚拟机统计信息监视工具
+
+`jstat`（`JVM Statistics Monitoring Tool`）是用于监视虚拟机各种运行状态信息的命令行工具。它可以显示本地或者远程虚拟机进程中的类加载、内存、垃圾收集、即时编译等运行时数据，在没有 GUI图形界面、只提供了纯文本控制台环境的服务器上，它将是运行期定位虚拟机性能问题的常用工具。
+
+`jstat` 命令格式：
+
+```bash
+jstat [option vmid [interval[s|ms] [count]]]
+```
+
+**参数说明**：
+
+1）对于命令格式中的 `VMID` 与 `LVMID` 需要特别说明：如果是本地虚拟机进程，`VMID` 与 `LVMID` 是一致的；如果是远程虚拟机进程，那 `VMID` 的格式应当是：
+
+```bash
+[protocol:][//]lvmid[@hostname[:port]/servername]
+```
+
+2）参数 `interval` 和 `count` 代表查询间隔和次数，如果省略这2个参数，说明只查询一次。假设需要每250 毫秒查询一次进程2764垃圾收集状况，一共查询20次，那命令应当是：
+
+```bash
+jstat -gc 2764 250 20
+```
+
+3）选项 `option` 代表用户希望查询的虚拟机信息，主要分为三类：类加载、垃圾收集、运行期编译状况。
+
+基本使用实例：
+
+```bash
+douqu@iZ2ze0blc58weob3oi45cjZ:~$ jstat -gcutil 3063
+  S0     S1     E      O      M     CCS    YGC     YGCT    FGC    FGCT     GCT   
+ 18.45   0.00  34.15   9.21  97.25  95.67     90    1.792     6    0.237    2.029
+```
+
+**查询结果表明**：这台服务器的新生代`Eden`区（`E`，表示`Eden`）使用了34.15%的空间，2个`Survivor`区 （`S0`、`S1`，表示`Survivor0`、`Survivor1`）分别使用了18.45%和0，老年代（`O`，表示`Old`）使用了9.21%，永久代（`P`，表示`Permanent`）没显示。程序运行以来共发生`Minor GC`（`YGC`，表示`Young GC`）90次，总耗时1.792秒；发生 `Full GC`（`FGC`，表示`Full GC`）6次，总耗时（`FGCT`，表示`Full GC Time`）为0.237秒；所有`GC`总耗时（`GCT`，表示`GC Time`）为2.029秒。
+
+<center>表4-2  jstat工具主要选项</center>
+
+|       选项        | 作用                                                         |
+| :---------------: | ------------------------------------------------------------ |
+|      -class       | 监视类加载、卸载数量、总空间以及类装载所耗费的时间           |
+|        -gc        | 监视`Java`堆状况，包括`Eden`区，2个`Survivor`区，老年代，永久代等的容量，已用空间，垃圾收集时间合计等信息 |
+|    -gccapacity    | 监视内容基本与 `-gc`一致，但输出主要关注 `Java` 堆各个区域使用到的最大最小空间 |
+|      -gcutil      | 监视内容基本与 `-gc`一致，但输出主要关注已使用空间占总空间的百分比 |
+|     -gccause      | 功能与`-gcutil`一致，但会额外输出导致上一次垃圾收集产生的原因 |
+|      -gcnew       | 监视新生代垃圾收集状况                                       |
+|  -gcnewcapacity   | 监视内容基本与 `-gcnew`一致，但输出主要关注使用到的最大最小空间 |
+|      -gcold       | 监视老年代垃圾收集状况                                       |
+|  -gcoldcapacity   | 监视内容基本与 `-gcold`一致，但输出主要关注使用到的最大最小空间 |
+|  -gcpermcapacity  | 输出永久代使用到的最大最小空间                               |
+|     -compiler     | 输出即时编译器编译过的方法、耗时等信息                       |
+| -printcompilation | 输出已被即时编译过的方法                                     |
+
+- **jinfo**：`Java`配置信息工具
+
+`jinfo`（`Configuration Info for Java`）的作用是实时查看和调整虚拟机各项参数。
+
+`jinfo`命令格式：
+
+```bash
+jinfo [ option ] pid
+```
+
+基本使用实例：
+
+```bash
+douqu@iZ2ze0blc58weob3oi45cjZ:~$ jinfo -flag CMSInitiatingOccupancyFraction 3063
+-XX:CMSInitiatingOccupancyFraction=70
+```
+
+- **jmap**：`Java`内存映像工具
+
+`jmap`（`Memory Map for Java`）命令用于生成堆转储快照（一般称为`heapdump`或`dump`文件），还可以查询`finalize`执行队列、`Java`堆和方法区的详细信息，如空间使用率、当前用的是哪种收集器等。
+
+`jmap`命令格式：
+
+```bash
+jmap [ option ] vmid
+```
+
+基本使用实例：
+
+```bash
+douqu@iZ2ze0blc58weob3oi45cjZ:~$ jmap -dump:format=b,file=douqu_console.bin 3063
+Dumping heap to /home/douqu/douqu_console.bin ...
+Heap dump file created
+```
+
+<center>表4-3  jmap工具主要选项</center>
+
+|      选项      | 作用                                                         |
+| :------------: | ------------------------------------------------------------ |
+|     -dump      | 生成`Java`堆转储快照。格式为`-dump:[live,]format=b,file=<filename>`，其中`live`子参数说明是否只`dump`出存活的对象 |
+| -finalizerinfo | 显示在`F-Queue` 中等待`Finalizer`线程执行`finalize`方法的对象；只在`Linux/Solaris`平台下有效 |
+|     -heap      | 显示`Java`堆详细信息，如使用哪种回收器，参数配置，分代状况等；只在`Linux/Solaris`平台下有效 |
+|     -histo     | 显示堆中对象统计信息，包括类，实例数量，合计容量             |
+|   -permstat    | 以`ClassLoader`为统计口径显示永久代内存状态。只在`Linux/Solaris`平台下有效 |
+|       -F       | 当虚拟机进程对`-dump`选项没有响应时，可以使用这个选项强制生成`dump`快照；只在`Linux/Solaris`平台下有效 |
+
+- **jhat**：虚拟机堆转储快照分析工具
+
+`jhat`（`JVM Heap Analysis Tool`）命令与`jmap`搭配使用，来分析`jmap`生成的堆转储快照。`jhat`内置了一个微型的`HTTP/Web`服务器，生成堆转储快照的分析结果后，可以在浏览器中查看。在实际工作中多数人是不会直接使用 `jhat` 命令来分析堆转储快照文件的，主要原因有：
+
+> 1）一般不会在部署应用程序的服务器上直接分析堆转储快照，即使可以这样做，也会尽量将堆转储快照文件复制到其他机器上进行分析，因为分析工作是一个耗时而且极为耗费硬件资源的过程；
+>
+> 2）`jhat`的分析功能相对来说比较简陋，不如VisualVM，以及专业用于分析堆转储快照文件的`Eclipse Memory Analyzer`、`IBM HeapAnalyzer` 等工具，它们都能实现比 `jhat` 更强大专业的分析功能。
+
+基本使用实例：
+
+```bash
+☁  2020-07-11 [master] ⚡  /Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home/bin/jhat douqu_console.bin
+Reading from douqu_console.bin...
+Dump file created Tue Aug 11 13:45:36 CST 2020
+Snapshot read, resolving...
+Resolving 3243089 objects...
+Chasing references, expect 648 dots........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+Eliminating duplicate references........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+Snapshot resolved.
+Started HTTP server on port 7000
+Server is ready.
+```
+
+- **jstack**：`Java`堆栈跟踪工具
+
+`jstack`（`Stack Trace for Java`）命令用于生成虚拟机当前时刻的线程快照（一般称为`threaddump`或者`javacore`文件）。
+
+`jstack`命令格式：
+
+```bash
+jstack [option] vmid
+```
+
+基本使用实例：
+
+```bash
+douqu@iZ2ze0blc58weob3oi45cjZ:~$ jstack -l 3063
+2020-08-11 14:01:12
+Full thread dump OpenJDK 64-Bit Server VM (25.191-b12 mixed mode):
+
+"Attach Listener" #65 daemon prio=9 os_prio=0 tid=0x00007f0cac005000 nid=0x59c9 waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-10" #56 prio=5 os_prio=0 tid=0x00007f0ce4018800 nid=0x1870 waiting on condition [0x00007f0c733f8000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-9" #55 prio=5 os_prio=0 tid=0x00007f0c84117800 nid=0xfc1 waiting on condition [0x00007f0c739fc000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-8" #54 prio=5 os_prio=0 tid=0x00007f0cd8037800 nid=0xf71 waiting on condition [0x00007f0c738fb000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-7" #53 prio=5 os_prio=0 tid=0x00007f0c9407d000 nid=0xebc waiting on condition [0x00007f0c73bfe000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-6" #52 prio=5 os_prio=0 tid=0x00007f0cb0007000 nid=0xe6d waiting on condition [0x00007f0c735fa000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-5" #51 prio=5 os_prio=0 tid=0x00007f0c8437b000 nid=0xdcf waiting on condition [0x00007f0c734f9000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-4" #50 prio=5 os_prio=0 tid=0x00007f0c94329800 nid=0xd3e waiting on condition [0x00007f0c73afd000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-3" #41 prio=5 os_prio=0 tid=0x00007f0c84566800 nid=0xc91 waiting on condition [0x00007f0c8c19a000]
+   java.lang.Thread.State: TIMED_WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:215)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.awaitNanos(AbstractQueuedSynchronizer.java:2078)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1093)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"SessionValidationThread-1" #40 daemon prio=5 os_prio=0 tid=0x00007f0c6c5e2800 nid=0xc45 waiting on condition [0x00007f0c8c69b000]
+   java.lang.Thread.State: TIMED_WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d406e620> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:215)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.awaitNanos(AbstractQueuedSynchronizer.java:2078)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1093)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"DestroyJavaVM" #39 prio=5 os_prio=0 tid=0x00007f0d0800b800 nid=0xbf8 waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-AsyncTimeout" #37 daemon prio=5 os_prio=0 tid=0x00007f0d093ce000 nid=0xc44 waiting on condition [0x00007f0c8c99c000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+        at java.lang.Thread.sleep(Native Method)
+        at org.apache.coyote.AbstractProtocol$AsyncTimeout.run(AbstractProtocol.java:1211)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-Acceptor-0" #36 daemon prio=5 os_prio=0 tid=0x00007f0d089b1000 nid=0xc43 runnable [0x00007f0c8ca9d000]
+   java.lang.Thread.State: RUNNABLE
+        at sun.nio.ch.ServerSocketChannelImpl.accept0(Native Method)
+        at sun.nio.ch.ServerSocketChannelImpl.accept(ServerSocketChannelImpl.java:422)
+        at sun.nio.ch.ServerSocketChannelImpl.accept(ServerSocketChannelImpl.java:250)
+        - locked <0x00000000d414a050> (a java.lang.Object)
+        at org.apache.tomcat.util.net.NioEndpoint$Acceptor.run(NioEndpoint.java:455)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-ClientPoller-1" #35 daemon prio=5 os_prio=0 tid=0x00007f0d09ca8000 nid=0xc42 runnable [0x00007f0c8cb9e000]
+   java.lang.Thread.State: RUNNABLE
+        at sun.nio.ch.EPollArrayWrapper.epollWait(Native Method)
+        at sun.nio.ch.EPollArrayWrapper.poll(EPollArrayWrapper.java:269)
+        at sun.nio.ch.EPollSelectorImpl.doSelect(EPollSelectorImpl.java:93)
+        at sun.nio.ch.SelectorImpl.lockAndDoSelect(SelectorImpl.java:86)
+        - locked <0x00000000d4150f80> (a sun.nio.ch.Util$3)
+        - locked <0x00000000d4150f68> (a java.util.Collections$UnmodifiableSet)
+        - locked <0x00000000d38b67d0> (a sun.nio.ch.EPollSelectorImpl)
+        at sun.nio.ch.SelectorImpl.select(SelectorImpl.java:97)
+        at org.apache.tomcat.util.net.NioEndpoint$Poller.run(NioEndpoint.java:793)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-ClientPoller-0" #34 daemon prio=5 os_prio=0 tid=0x00007f0c8905e800 nid=0xc41 runnable [0x00007f0c8cc9f000]
+   java.lang.Thread.State: RUNNABLE
+        at sun.nio.ch.EPollArrayWrapper.epollWait(Native Method)
+        at sun.nio.ch.EPollArrayWrapper.poll(EPollArrayWrapper.java:269)
+        at sun.nio.ch.EPollSelectorImpl.doSelect(EPollSelectorImpl.java:93)
+        at sun.nio.ch.SelectorImpl.lockAndDoSelect(SelectorImpl.java:86)
+        - locked <0x00000000d414cae0> (a sun.nio.ch.Util$3)
+        - locked <0x00000000d414cac8> (a java.util.Collections$UnmodifiableSet)
+        - locked <0x00000000d4119678> (a sun.nio.ch.EPollSelectorImpl)
+        at sun.nio.ch.SelectorImpl.select(SelectorImpl.java:97)
+        at org.apache.tomcat.util.net.NioEndpoint$Poller.run(NioEndpoint.java:793)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-10" #33 daemon prio=5 os_prio=0 tid=0x00007f0d090d5800 nid=0xc40 waiting on condition [0x00007f0c8cda0000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-9" #32 daemon prio=5 os_prio=0 tid=0x00007f0d0a71c000 nid=0xc3f waiting on condition [0x00007f0c8cea1000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-8" #31 daemon prio=5 os_prio=0 tid=0x00007f0d08cf9000 nid=0xc3e waiting on condition [0x00007f0c8cfa2000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-7" #30 daemon prio=5 os_prio=0 tid=0x00007f0d0a8c9000 nid=0xc3d waiting on condition [0x00007f0c8d0a3000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-6" #29 daemon prio=5 os_prio=0 tid=0x00007f0d08c2c800 nid=0xc3c waiting on condition [0x00007f0c8d1a4000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-5" #28 daemon prio=5 os_prio=0 tid=0x00007f0c8946c000 nid=0xc3b waiting on condition [0x00007f0c8d2a5000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-4" #27 daemon prio=5 os_prio=0 tid=0x00007f0d0a811800 nid=0xc3a waiting on condition [0x00007f0c8d3a6000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-3" #26 daemon prio=5 os_prio=0 tid=0x00007f0d08de4000 nid=0xc39 waiting on condition [0x00007f0c8d4a7000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-2" #25 daemon prio=5 os_prio=0 tid=0x00007f0d0909a800 nid=0xc38 waiting on condition [0x00007f0c8d5a8000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"http-nio-10010-exec-1" #24 daemon prio=5 os_prio=0 tid=0x00007f0c88f46000 nid=0xc37 waiting on condition [0x00007f0c8d6a9000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414a080> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:103)
+        at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:31)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"NioBlockingSelector.BlockPoller-1" #23 daemon prio=5 os_prio=0 tid=0x00007f0d0ad3d000 nid=0xc36 runnable [0x00007f0c8d7aa000]
+   java.lang.Thread.State: RUNNABLE
+        at sun.nio.ch.EPollArrayWrapper.epollWait(Native Method)
+        at sun.nio.ch.EPollArrayWrapper.poll(EPollArrayWrapper.java:269)
+        at sun.nio.ch.EPollSelectorImpl.doSelect(EPollSelectorImpl.java:93)
+        at sun.nio.ch.SelectorImpl.lockAndDoSelect(SelectorImpl.java:86)
+        - locked <0x00000000d414a140> (a sun.nio.ch.Util$3)
+        - locked <0x00000000d414a128> (a java.util.Collections$UnmodifiableSet)
+        - locked <0x00000000d40887b8> (a sun.nio.ch.EPollSelectorImpl)
+        at sun.nio.ch.SelectorImpl.select(SelectorImpl.java:97)
+        at org.apache.tomcat.util.net.NioBlockingSelector$BlockPoller.run(NioBlockingSelector.java:339)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-2" #22 prio=5 os_prio=0 tid=0x00007f0c845b9800 nid=0xc35 waiting on condition [0x00007f0cc57ac000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"ThreadPoolTaskScheduler-1" #21 prio=5 os_prio=0 tid=0x00007f0d08ca0800 nid=0xc34 waiting on condition [0x00007f0c8f5d2000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d414ca98> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2039)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1088)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"commons-pool-evictor-thread" #20 prio=5 os_prio=0 tid=0x00007f0d0aa8c800 nid=0xc33 waiting on condition [0x00007f0c8daab000]
+   java.lang.Thread.State: TIMED_WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000000d3c77d48> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:215)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.awaitNanos(AbstractQueuedSynchronizer.java:2078)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:1093)
+        at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(ScheduledThreadPoolExecutor.java:809)
+        at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1074)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1134)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"Abandoned connection cleanup thread" #18 daemon prio=5 os_prio=0 tid=0x00007f0d09058800 nid=0xc31 in Object.wait() [0x00007f0c8efce000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:144)
+        - locked <0x00000000d1deb160> (a java.lang.ref.ReferenceQueue$Lock)
+        at com.mysql.jdbc.AbandonedConnectionCleanupThread.run(AbandonedConnectionCleanupThread.java:43)
+
+   Locked ownable synchronizers:
+        - None
+
+"Tomcat JDBC Pool Cleaner[791452441:1597113681423]" #17 daemon prio=5 os_prio=0 tid=0x00007f0d086ee800 nid=0xc30 in Object.wait() [0x00007f0c8f0cf000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        at java.util.TimerThread.mainLoop(Timer.java:552)
+        - locked <0x00000000d1deb178> (a java.util.TaskQueue)
+        at java.util.TimerThread.run(Timer.java:505)
+
+   Locked ownable synchronizers:
+        - None
+
+"container-0" #16 prio=5 os_prio=0 tid=0x00007f0d09a96000 nid=0xc2f waiting on condition [0x00007f0c8f3d0000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+        at java.lang.Thread.sleep(Native Method)
+        at org.apache.catalina.core.StandardServer.await(StandardServer.java:427)
+        at org.springframework.boot.context.embedded.tomcat.TomcatEmbeddedServletContainer$1.run(TomcatEmbeddedServletContainer.java:177)
+
+   Locked ownable synchronizers:
+        - None
+
+"ContainerBackgroundProcessor[StandardEngine[Tomcat]]" #15 daemon prio=5 os_prio=0 tid=0x00007f0d09a95800 nid=0xc2e waiting on condition [0x00007f0c8f4d1000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+        at java.lang.Thread.sleep(Native Method)
+        at org.apache.catalina.core.ContainerBase$ContainerBackgroundProcessor.run(ContainerBase.java:1355)
+        at java.lang.Thread.run(Thread.java:748)
+
+   Locked ownable synchronizers:
+        - None
+
+"Service Thread" #9 daemon prio=9 os_prio=0 tid=0x00007f0d08208000 nid=0xc0e runnable [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"C1 CompilerThread2" #8 daemon prio=9 os_prio=0 tid=0x00007f0d081fc800 nid=0xc0d waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"C2 CompilerThread1" #7 daemon prio=9 os_prio=0 tid=0x00007f0d081fa800 nid=0xc0c waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"C2 CompilerThread0" #6 daemon prio=9 os_prio=0 tid=0x00007f0d081f8800 nid=0xc0b waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"Signal Dispatcher" #5 daemon prio=9 os_prio=0 tid=0x00007f0d081f6800 nid=0xc0a runnable [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"Surrogate Locker Thread (Concurrent GC)" #4 daemon prio=9 os_prio=0 tid=0x00007f0d081f5000 nid=0xc09 waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+        - None
+
+"Finalizer" #3 daemon prio=8 os_prio=0 tid=0x00007f0d081c3000 nid=0xc08 in Object.wait() [0x00007f0cc6bd7000]
+   java.lang.Thread.State: WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:144)
+        - locked <0x00000000d010b0a0> (a java.lang.ref.ReferenceQueue$Lock)
+        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:165)
+        at java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:216)
+
+   Locked ownable synchronizers:
+        - None
+
+"Reference Handler" #2 daemon prio=10 os_prio=0 tid=0x00007f0d081c0800 nid=0xc07 in Object.wait() [0x00007f0cc6cd8000]
+   java.lang.Thread.State: WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        at java.lang.Object.wait(Object.java:502)
+        at java.lang.ref.Reference.tryHandlePending(Reference.java:191)
+        - locked <0x00000000d0109ff0> (a java.lang.ref.Reference$Lock)
+        at java.lang.ref.Reference$ReferenceHandler.run(Reference.java:153)
+
+   Locked ownable synchronizers:
+        - None
+
+"VM Thread" os_prio=0 tid=0x00007f0d081b6800 nid=0xc06 runnable 
+
+"Gang worker#0 (Parallel GC Threads)" os_prio=0 tid=0x00007f0d08011000 nid=0xbf9 runnable 
+
+"Gang worker#1 (Parallel GC Threads)" os_prio=0 tid=0x00007f0d0801e800 nid=0xbfa runnable 
+
+"Gang worker#2 (Parallel GC Threads)" os_prio=0 tid=0x00007f0d08020000 nid=0xbfb runnable 
+
+"Gang worker#3 (Parallel GC Threads)" os_prio=0 tid=0x00007f0d08022000 nid=0xbfc runnable 
+
+"Gang worker#4 (Parallel GC Threads)" os_prio=0 tid=0x00007f0d08023800 nid=0xbfd runnable 
+
+"Gang worker#5 (Parallel GC Threads)" os_prio=0 tid=0x00007f0d08025800 nid=0xbfe runnable 
+
+"Concurrent Mark-Sweep GC Thread" os_prio=0 tid=0x00007f0d08088000 nid=0xc05 runnable 
+
+"Gang worker#0 (Parallel CMS Threads)" os_prio=0 tid=0x00007f0d0807d800 nid=0xbff runnable 
+
+"Gang worker#1 (Parallel CMS Threads)" os_prio=0 tid=0x00007f0d0807f000 nid=0xc00 runnable 
+
+"Gang worker#2 (Parallel CMS Threads)" os_prio=0 tid=0x00007f0d08081000 nid=0xc01 runnable 
+
+"Gang worker#3 (Parallel CMS Threads)" os_prio=0 tid=0x00007f0d08082800 nid=0xc02 runnable 
+
+"Gang worker#4 (Parallel CMS Threads)" os_prio=0 tid=0x00007f0d08084800 nid=0xc03 runnable 
+
+"Gang worker#5 (Parallel CMS Threads)" os_prio=0 tid=0x00007f0d08086000 nid=0xc04 runnable 
+
+"VM Periodic Task Thread" os_prio=0 tid=0x00007f0d0820a800 nid=0xc0f waiting on condition 
+
+JNI global references: 287
+```
+
+<center>表4-4  jstack工具主要选项</center>
+
+| 选项 | 作用                                           |
+| :--: | ---------------------------------------------- |
+|  -F  | 当正常输出的情况下不被响应时，强制输出线程堆栈 |
+|  -l  | 除堆栈外，显示关于锁的附加信息                 |
+|  -m  | 如果调用到本地方法时，可以显示`C/C++`的堆栈    |
+
+- 基础工具总结
+
+![表4-5基础工具](images/jvm_20200811230428.png)
+
+![表4-6安全工具](images/jvm_20200811230452.png)
+
+![表4-7国际化工具](images/jvm_20200811230509.png)
+
+![表4-8远程方法调用工具](images/jvm_20200811230525.png)
+
+`Java IDL` 与 `RMI-IIOP`：在 `JDK 11` 中结束了十余年的 `CORBA` 支持，这些工具不再提供。
+
+![表4-9Java IDL与RMI-IIOP](images/jvm_20200811230548.png)
+
+![表4-10部署工具](images/jvm_20200811230606.png)
+
+![表4-11JaavaWebStart](images/jvm_20200811230627.png)
+
+![表4-12性能监控和故障处理工具](images/jvm_20200811230652.png)
+
+`WebService` 工具：与 `CORBA` 一起在 `JDK 11` 中被移除。
+
+![表4-13WebService工具](images/jvm_20200811230729.png)
+
+![表4-14REPL和脚本工具](images/jvm_20200811230743.png)
+
+#### 2，可视化故障处理工具
+
+- **JHSDB**：基于服务性代理的调试工具
+
+`JHSDB`是一款基于服务性代理（`Serviceability Agent`，`SA`）实现的进程外调试工具。服务性代理是 `HotSpot` 虚拟机中一组用于映射 `Java` 虚拟机运行信息的、主要基于 `Java` 语言（含少量 `JNI` 代码）实现的 `API` 集合。
+
+`JCMD`、`JHSDB`和基础工具的对比：
+
+![JCMD、JHSDB和基础工具的对比](images/jvm_20200811232708.png)
+
+查看 `jdk` 本地安装多个版本：
+
+```java
+☁  images [interview] ⚡  /usr/libexec/java_home -V
+
+Matching Java Virtual Machines (2):
+    11.0.6, x86_64:	"Java SE 11.0.6"	/Library/Java/JavaVirtualMachines/jdk-11.0.6.jdk/Contents/Home
+    1.8.0_131, x86_64:	"Java SE 8"	/Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home
+
+/Library/Java/JavaVirtualMachines/jdk-11.0.6.jdk/Contents/Home
+```
+
+基本使用实例：
+
+1）代码清单4-1 `JHSDB` 测试用例
+
+```java
+package com.jvm;
+
+
+/**
+ * JHSDB 测试用例
+ * VM Args： -Xmx10M -XX:+UseSerialGC -XX:UseCompressedOops
+ * staticObj、instanceObj、localObj存放在哪里？
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/11 23:33
+ */
+public class JhsdbTestCase {
+
+    static class TestCase {
+        /**
+         * 方法区
+         */
+        static ObjectHolder staticObj = new ObjectHolder();
+
+        /**
+         * Java堆
+         */
+        ObjectHolder instanceObj = new ObjectHolder();
+
+        void foo() {
+            // 局部变量表
+            ObjectHolder localObj = new ObjectHolder();
+            System.out.println("Done.");
+        }
+    }
+
+    public static class ObjectHolder {}
+
+    public static void main(String[] args) {
+        TestCase testCase = new JhsdbTestCase.TestCase();
+        testCase.foo();
+    }
+}
+```
+
+2）`debug`执行后
+
+```bash
+# 查看进程ID
+☁  ~  jps -l
+963 org.jetbrains.jps.cmdline.Launcher
+1476 org.jetbrains.jps.cmdline.Launcher
+1477 com.jvm.JhsdbTestCase
+917
+1479 jdk.jcmd/sun.tools.jps.Jps
+1144
+☁  ~  jhsdb hsdb 1477
+# 执行 jhsdb
+☁  ~  jhsdb hsdb --pid 1477
+```
+
+```bash
+Heap Parameters:
+Gen 0:   eden [0x0000000124400000,0x000000012459f298,0x00000001246b0000) space capacity = 2818048, 60.343329851017444 used
+  from [0x0000000124700000,0x000000012474fff8,0x0000000124750000) space capacity = 327680, 99.99755859375 used
+  to   [0x00000001246b0000,0x00000001246b0000,0x0000000124700000) space capacity = 327680, 0.0 usedInvocations: 1
+
+Gen 1:   old  [0x0000000124750000,0x000000012486ed78,0x0000000124e00000) space capacity = 7012352, 16.754777854848133 usedInvocations: 0
+```
+
+```bash
+scanoops 0x0000000124400000 0x0000000124700000 JhsdbTestCase$ObjectHolder
+```
+
+- **JConsole**：`Java`监视与管理控制台
+
+`JConsole`（`Java Monitoring and Management Console`）是一款基于`JMX`（`Java Manage-ment Extensions`）的可视化监视、管理工具。它的主要功能是通过`JMX`的`MBean`（`Managed Bean`）对系统进行信息收集和参数动态调整。
+
+代码清单4-2  `JConsole` 监视用例
+
+```java
+package com.jvm;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * JConsole 监视用例
+ * 内存占位符对象：一个 OOMObject 大约占64KKB
+ * VM Args：-Xms100m -Xmx100m -XX:+UseSerialGC
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/13 01:18
+ */
+public class JconsoleTestCase {
+
+    static class OOMObject {
+        public byte[] placeholder = new byte[64 * 1024];
+    }
+
+    public static void fillHeap(int num) throws InterruptedException {
+        List<OOMObject> list = new ArrayList<>(16);
+        for (int i = 0; i < num; i++) {
+            Thread.sleep(5000);
+            list.add(new OOMObject());
+        }
+
+        System.gc();
+    }
+
+    public static void main(String[] args) throws Exception {
+        fillHeap(1000);
+    }
+}
+```
+
+```bash
+☁  ~  /Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home/bin/jconsole
+```
+
+代码清单4-3 线程等待演示
+
+```java
+package com.jvm;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
+/**
+ * 线程等待用例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/13 08:35
+ */
+public class ThreadWaitingCase {
+
+    /**
+     * 线程死循环
+     */
+    public static void createBusyThread() {
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (true) {
+
+                }
+            }
+        }, "testBusyThread");
+        thread.start();
+    }
+
+    /**
+     * 线程锁等待
+     * @param lock 锁
+     */
+    public static void createLockThread(final Object lock) {
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (lock) {
+                    try {
+                        lock.wait();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }, "testLockThread");
+        thread.start();
+    }
+
+    public static void main(String[] args) throws Exception {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        reader.readLine();
+        createBusyThread();
+        reader.readLine();
+        Object obj = new Object();
+        createLockThread(obj);
+    }
+}
+```
+
+代码清单4-4 线程死锁演示
+
+```java
+package com.jvm;
+
+/**
+ * 线程死锁用例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/13 22:57
+ */
+public class ThreadLockCase {
+
+    /**
+     * 线程死锁等待
+     */
+    static class SynAddRunnable implements Runnable {
+        int x, y;
+        public SynAddRunnable(int x, int y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        @Override
+        public void run() {
+            synchronized (Integer.valueOf(x)) {
+                synchronized (Integer.valueOf(y)) {
+                    System.out.println(x + y);
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        int count = 100;
+        for (int i = 0; i < count; i++) {
+            new Thread(new SynAddRunnable(1, 2)).start();
+            new Thread(new SynAddRunnable(2, 1)).start();
+        }
+    }
+}
+```
+
+- **VisualVM**：多合-故障处理工具
+
+`VisualVM（All-in-One Java Troubleshooting Tool）`是功能最强大的运行监视和故障处理程序之一，曾经是`Oracle`官方主力发展的虚拟机故障处理工具。`VisualVM`在`JDK 6 Update 7`中首次发布。
+
+> 显示虚拟机进程以及进程的配置、环境信息（`jps`、`jinfo`）；
+>
+> 监视应用程序的处理器、垃圾收集、堆、方法区以及线程的信息（`jstat`、`jstack`）；
+>
+> `dump`以及分析堆转储快照（`jmap`、`jhat`）；
+>
+> 方法级的程序运行性能分析，找出被调用最多、运行时间最长的方法；
+>
+> 离线程序快照：收集程序的运行时配置、线程`dump`、内存`dump`等信息建立一个快照，可以将快照发送开发者处进行`Bug`反馈；
+>
+> 其他插件带来的无限可能性。
+
+- **Java Mission Control**：可持续在线的监控工具
 
