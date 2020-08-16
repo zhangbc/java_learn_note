@@ -2493,3 +2493,1475 @@ public class ThreadLockCase {
 
 - **Java Mission Control**：可持续在线的监控工具
 
+## 五 调优案例分析与实战
+
+#### 1，案例分析
+
+- 大内存硬件上的程序部署策略
+
+监控服务器运行状况后，发现网站失去响应是由**垃圾收集停顿**所导致的，在该系统软硬件条件下，`HotSpot` 虚拟机是以服务端模式运行，默认使用的是**吞吐量优先收集器**，回收`12GB`的`Java`堆，一次`Full GC`的停顿时间就高达14秒。
+
+目前单体应用在较大内存的硬件上主要的部署方式有两种：
+
+> 1）通过一个单独的`Java`虚拟机实例来管理大量的`Java`堆内存；
+>
+> 2）同时使用若干个`Java`虚拟机，建立逻辑集群来利用硬件资源。
+
+如果计划使用单个`Java`虚拟机实例来管理大内存，还需要考虑下面可能面临的问题：
+
+> 1）回收大块堆内存而导致的长时间停顿，自从`G1`收集器的出现，增量回收得到比较好的应用，这个问题有所缓解，但要到`ZGC`和`Shenandoah`收集器成熟之后才得到相对彻底地解决；
+>
+> 2）大内存必须有64位`Java`虚拟机的支持，但由于压缩指针、处理器缓存行容量（`Cache Line`）等因素，64位虚拟机的性能测试结果普遍略低于相同版本的32位虚拟机；
+>
+> 3）必须保证应用程序足够稳定，因为这种大型单体应用要是发生了堆内存溢出，几乎无法产生堆转储快照（要产生十几`GB`乃至更大的快照文件），哪怕成功生成了快照也难以进行分析；如果确实出了问题要进行诊断，可能就必须应用`JMC`这种能够在生产环境中进行的运维工具；
+>
+> 4）相同的程序在64位虚拟机中消耗的内存一般比32位虚拟机要大，这是由于指针膨胀，以及数据类型对齐补白等因素导致的，可以开启（默认即开启）压缩指针功能来缓解。
+
+- 集群间同步导致的内存溢出
+
+一个基于`B/S`的`MIS`系统，硬件为两台双路处理器、`8GB`内存的`HP`小型机，应用中间件是`WebLogic 9.2`，每台机器启动了3个`WebLogic`实例，构成一个6个节点的亲合式集群。由于是亲合式集群，节点之间没有进行`Session`同步，但是有一些需求要实现部分数据在各个节点间共享。最开始这些数据是存放在数据库中的，但由于读写频繁、竞争很激烈，性能影响较大，后面使用`JBossCache`构建了一个全局缓存。全局缓存启用后，服务正常使用了一段较长的时间。但在最近不定期出现多次的内存溢出问题。
+
+- 堆外内存导致的溢出错误
+
+基于`B/S`的电子考试系统，为了实现客户端能实时地从服务器端接收考试数据，系统使用了逆向`AJAX`技术（也称为`Comet`或者`Server Side Push`），选用`CometD 1.1.1`作为服务端推送框架，服务器是`Jetty 7.1.4`，硬件为一台很普通`PC`机，`Core i5 CPU`，`4GB`内存，运行32位 `Windows`操作系统。测试期间发现服务端不定时抛出内存溢出异常，服务不一定每次都出现异常。网站管理员尝试过把堆内存调到最大，32位系统最多到1.6GB基本无法再加大，而且开大了基本没效果，抛出内存溢出异常好像还更加频繁。加入`-XX： +HeapDumpOnOutOfMemoryError`参数，居然也没有任何反应，抛出内存溢出异常时什么文件都没有 产生。无奈之下只好挂着`jstat`紧盯屏幕，发现垃圾收集并不频繁，`Eden`区、`Survivor`区、老年代以及 法区的内存全部都很稳定，压力并不大，但就是照样不停抛出内存溢出异常。最后，在内存溢出后从系统日志中找到异常堆栈。
+
+- 外部命令导致系统缓慢
+
+每个用户请求的处理都需要执行一个外部`Shell`脚本来获得系统的一些信息。执行这个`Shell`脚本是通过`Java`的`Runtime.getRuntime().exec()`方法来调用的。 这种调用方式可以达到执行`Shell`脚本的目的，但是它在`Java`虚拟机中是非常消耗资源的操作，即使外部命令本身能很快执行完毕，频繁调用时创建进程的开销也会非常可观。Java虚拟机执行这个命令的过程是首先复制一个和当前虚拟机拥有一样环境变量的进程，再用这个新的进程去执行外部命令，最后再退出这个进程。
+
+- 服务器虚拟机进程崩溃
+
+一个基于`B/S`的`MIS`系统，硬件为两台双路处理器、`8GB`内存的`HP`系统，服务器是`WebLogic 9.2`，正常运行一段时间后，最近发现在运行期间频繁出现集群节点的虚拟机进程自动关闭的现象，留下了一个`hs_err_pid###.log`文件后，虚拟机进程就消失了，两台物理机器里的每个节点都出现过进程崩溃的现象。从系统日志中注意到，每个节点的虚拟机进程在崩溃之前，都发生过大量相同的异常。
+
+- 不恰当数据结构导致内存占用过大
+
+一个后台`RPC`服务器，使用64位`Java`虚拟机，内存配置为`-Xms4g-Xmx8g-Xmn1g`，使用`ParNew`加 `CMS` 的收集器组合。平时对外服务的`Minor GC`时间约在30毫秒以内，完全可以接受。但业务上需要每10分钟加载一个约`80MB`的数据文件到内存进行数据分析，这些数据会在内存中形成超过100万个 `HashMap<Long，Long>Entry`，在这段时间里面`Minor GC`就会造成超过500毫秒的停顿。
+
+> 在`HashMap<Long，Long>`结构中，只有`Key`和`Value`所存放的两个长整型数据是有效数据，共16字节（2×8字节）。这两个长整型数据包装成`java.lang.Long`对象之 后，就分别具有8字节的`Mark Word`、8字节的`Klass`指针，再加8字节存储数据的`long`值。然后这2个 `Long`对象组成`Map.Entry`之后，又多了16字节的对象头，然后一个8字节的`next`字段和4字节的`int`型的 `hash`字段，为了对齐，还必须添加4字节的空白填充，最后还有`HashMap`中对这个`Entry`的8字节的引用，这样增加两个长整型数字，实际耗费的内存为`(Long(24byte)×2)+Entry(32byte)+HashMap Ref(8byte)=88byte`，空间效率为有效数据除以全部内存空间，即16字节/88字节=18%。
+
+- 由`Windows`虚拟内存导致的长时间停顿
+
+
+在`Java`的`GUI`程序中要避免这种现象，可以加入参数“`Dsun.awt.keepWorkingSetOnMinimize=true`”来解决。这个参数在许多`AWT`的程序上都有应用，例如 `JDK`（曾经）自带的`VisualVM`，启动配置文件中就有这个参数，保证程序在恢复最小化时能够立即响应。
+
+- 由安全点导致长时间停顿
+
+```bash
+[Times: user=1.51 sys=0.67, real=0.14 secs] 
+2019-06-25T 12:12:43.376+0800: 3448319.277: Total time for which application threads were stopped: 2.2645818 second
+```
+
+> `user`：进程执行用户态代码所耗费的处理器时间；
+>
+> `sys`：进程执行核心态代码所耗费的处理器时间；
+>
+> `rea`l：执行动作从开始到结束耗费的时钟时间。
+
+处理器时间代表的是线程占用处理器一个核心的耗时计数，而时钟时间就是现实世界中的时间计数。如果是单核单线程的场景下，这两者可以认为是等价的，但如果是多核环境下，同一个时钟时间内有多少处理器核心正在工 作，就会有多少倍的处理器时间被消耗和记录下来。
+
+在垃圾收集调优时，我们主要依据`real`时间为目标来优化程序，因为最终用户只关心发出请求到得到响应所花费的时间，也就是响应速度，而不太关心程序到底使用了多少个线程或者处理器来完成任务。
+
+#### 2，实战：Eclipse运行速度调优
+
+## 六 类文件结构
+
+#### 1，无关性的基石
+
+各种不同平台的`Java`虚拟机，以及所有平台都统一支持的程序存储格式——**字节码**（`Byte Code`）是构成**平台无关性**的基石。
+
+实现**语言无关性**的基础是虚拟机和字节码存储格式。`Java`虚拟机不与包括Java语言在内的任何程序语言绑定，它只与“`Class`文件”这种特定的二进制文件格式所关联，`Class`文件中包含了`Java`虚拟机指令集、符号表以及若干其他辅助信息。
+
+![Java虚拟机提供的语言无关性](images/jvm_20200814124542.png)
+
+#### 2，Class类文件的结构
+
+`Class`文件是一组以8个字节为基础单位的二进制流，各个数据项目严格按照顺序紧凑地排列在文件之中，中间没有添加任何分隔符，这使得整个`Class`文件中存储的内容几乎全部是程序运行的必要数据，没有空隙存在。当遇到需要占用8个字节以上空间的数据项时，则会按照高位在前成若干个8个字节进行存储。
+
+根据《Java虚拟机规范》的规定，`Class`文件格式采用一种类似于`C`语言结构体的伪结构来存储数据，这种伪结构中只有两种数据类型：“**无符号数**”和“**表**”。
+
+> **无符号数**属于基本的数据类型，以`u1`、`u2`、`u4`、`u8`来分别代表1个字节、2个字节、4个字节和8个字节的无符号数，可以用来描述数字、索引引用、数量值或者按照`UTF-8`编码构成字符串值；
+>
+> **表**是由多个无符号数或者其他表作为数据项构成的复合数据类型，为了便于区分，所有表的命名都习惯性地以“`_info`”结尾。表用于描述有层次关系的复合结构的数据，整个`Class`文件**本质**上也可以视作是一张表，这张表由表6-1所示的数据项按严格顺序排列构成。
+
+<center>表6-1 Class文件格式</center>
+
+![Class文件格式](images/jvm_20200814125759.png)
+
+- 魔数
+
+每个`Class`文件的头4个字节被称为**魔数**（`Magic Number`），其唯一作用是确定这个文件是否为一个能被虚拟机接受的`Class`文件。紧接着魔数的4个字节存储的是`Class`文件的版本号：第5和第6个字节是次版本号（`Minor Version`），第7和第8个字节是主版本号（`Major Version`）。`Java`的版本号是从45开始的，`JDK 1.1`之后 的每个`JDK`大版本发布主版本号向上加1（`JDK 1.0～1.1`使用了45.0～45.3的版本号）。
+
+```bash
+☁  jvm [interview] ⚡  hexdump -C GCTest.class
+00000000  ca fe ba be 00 00 00 37  00 15 0a 00 05 00 12 07  |.......7........|
+00000010  00 13 03 00 20 00 00 03  00 40 00 00 07 00 14 01  |.... ....@......|
+00000020  00 04 5f 31 4d 42 01 00  01 49 01 00 0d 43 6f 6e  |.._1MB...I...Con|
+00000030  73 74 61 6e 74 56 61 6c  75 65 03 00 10 00 00 01  |stantValue......|
+00000040  00 06 3c 69 6e 69 74 3e  01 00 03 28 29 56 01 00  |..<init>...()V..|
+00000050  04 43 6f 64 65 01 00 0f  4c 69 6e 65 4e 75 6d 62  |.Code...LineNumb|
+00000060  65 72 54 61 62 6c 65 01  00 04 6d 61 69 6e 01 00  |erTable...main..|
+00000070  16 28 5b 4c 6a 61 76 61  2f 6c 61 6e 67 2f 53 74  |.([Ljava/lang/St|
+00000080  72 69 6e 67 3b 29 56 01  00 0a 53 6f 75 72 63 65  |ring;)V...Source|
+00000090  46 69 6c 65 01 00 0b 47  43 54 65 73 74 2e 6a 61  |File...GCTest.ja|
+000000a0  76 61 0c 00 0a 00 0b 01  00 0e 63 6f 6d 2f 6a 76  |va........com/jv|
+000000b0  6d 2f 47 43 54 65 73 74  01 00 10 6a 61 76 61 2f  |m/GCTest...java/|
+000000c0  6c 61 6e 67 2f 4f 62 6a  65 63 74 00 21 00 02 00  |lang/Object.!...|
+000000d0  05 00 00 00 01 00 1a 00  06 00 07 00 01 00 08 00  |................|
+000000e0  00 00 02 00 09 00 02 00  01 00 0a 00 0b 00 01 00  |................|
+000000f0  0c 00 00 00 1d 00 01 00  01 00 00 00 05 2a b7 00  |.............*..|
+00000100  01 b1 00 00 00 01 00 0d  00 00 00 06 00 01 00 00  |................|
+00000110  00 0a 00 09 00 0e 00 0f  00 01 00 0c 00 00 00 3e  |...............>|
+00000120  00 01 00 05 00 00 00 16  12 03 bc 08 4c 12 03 bc  |............L...|
+00000130  08 4d 12 03 bc 08 4e 12  04 bc 08 3a 04 b1 00 00  |.M....N....:....|
+00000140  00 01 00 0d 00 00 00 16  00 05 00 00 00 10 00 05  |................|
+00000150  00 11 00 0a 00 12 00 0f  00 13 00 15 00 14 00 01  |................|
+00000160  00 10 00 00 00 02 00 11                           |........|
+00000168
+```
+
+```bash
+☁  jvm [interview] ⚡  javap -verbose GCTest
+警告: 文件 ./GCTest.class 不包含类 GCTest
+Classfile /home/projects/java_pro/java_projects/interview/src/main/java/com/jvm/GCTest.class
+  Last modified 2020年8月15日; size 360 bytes
+  MD5 checksum f362bf05a49a6afff1b198be515746f6
+  Compiled from "GCTest.java"
+public class com.jvm.GCTest
+  minor version: 0
+  major version: 55
+  flags: (0x0021) ACC_PUBLIC, ACC_SUPER
+  this_class: #2                          // com/jvm/GCTest
+  super_class: #5                         // java/lang/Object
+  interfaces: 0, fields: 1, methods: 2, attributes: 1
+Constant pool:
+   #1 = Methodref          #5.#18         // java/lang/Object."<init>":()V
+   #2 = Class              #19            // com/jvm/GCTest
+   #3 = Integer            2097152
+   #4 = Integer            4194304
+   #5 = Class              #20            // java/lang/Object
+   #6 = Utf8               _1MB
+   #7 = Utf8               I
+   #8 = Utf8               ConstantValue
+   #9 = Integer            1048576
+  #10 = Utf8               <init>
+  #11 = Utf8               ()V
+  #12 = Utf8               Code
+  #13 = Utf8               LineNumberTable
+  #14 = Utf8               main
+  #15 = Utf8               ([Ljava/lang/String;)V
+  #16 = Utf8               SourceFile
+  #17 = Utf8               GCTest.java
+  #18 = NameAndType        #10:#11        // "<init>":()V
+  #19 = Utf8               com/jvm/GCTest
+  #20 = Utf8               java/lang/Object
+{
+  public com.jvm.GCTest();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 10: 0
+
+  public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V
+    flags: (0x0009) ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=1, locals=5, args_size=1
+         0: ldc           #3                  // int 2097152
+         2: newarray       byte
+         4: astore_1
+         5: ldc           #3                  // int 2097152
+         7: newarray       byte
+         9: astore_2
+        10: ldc           #3                  // int 2097152
+        12: newarray       byte
+        14: astore_3
+        15: ldc           #4                  // int 4194304
+        17: newarray       byte
+        19: astore        4
+        21: return
+      LineNumberTable:
+        line 16: 0
+        line 17: 5
+        line 18: 10
+        line 19: 15
+        line 20: 21
+}
+SourceFile: "GCTest.java"
+```
+
+- 常量池
+
+紧接着主、次版本号之后的是**常量池入口**，常量池可以比喻为 `Class` 文件里的资源仓库，它是 `Class` 文件结构中与其他项目关联最多的数据，通常也是占用 `Class` 文件空间最大的数据项目之一。
+
+由于常量池中常量的数量是不固定的，所以在常量池的入口需要放置一项`u2`类型的数据，代表常量池容量计数值（`constant_pool_count`），其计数是从1而不是0开始的，如（上述例子），常量池容量（偏移地址：0x00000008）为十六进制数0x0015，即十进制的21，代表常量池中有20项常量，索引值范围为1～20。
+
+常量池中主要存放两大类常量：**字面量**（`Literal`）和**符号引用**（`Symbolic References`）。字面量比较接近于`Java`语言层面的常量概念，如文本字符串、被声明为`final`的常量值等。而符号引用则属于编译原理方面的概念，主要包括：
+
+> 被模块导出或者开放的包（`Package`） 
+>
+> 类和接口的全限定名（`Fully Qualified Name`） 
+>
+> 字段的名称和描述符（`Descriptor`） 
+>
+> 方法的名称和描述符 
+>
+> 方法句柄和方法类型（`Method Handle`、`Method Type`、`Invoke Dynamic`） 
+>
+> 动态调用点和动态常量（`Dynamically-Computed Call Site`、`Dynamically-Computed Constant`） 
+
+常量池中每一项常量都是一个表，最初常量表中共有11种结构各不相同的表结构数据，后来为了更好地支持动态语言调用，额外增加了4种动态语言相关的常量，为了支持`Java`模块化系统 （`Jigsaw`），又加入了`CONSTANT_Module_info`和`CONSTANT_Package_info`两个常量，所以截至`JDK 13`，常量表中分别有17种不同类型的常量。其共同的特点是，表结构起始的第一位是个`u1`类型的标志位（`tag`），代表着当前常量属于哪种常量类型。
+
+![常量池的项目类型](images/jvm_20200815010138.png)
+
+- 访问标志
+
+在常量池结束之后，紧接着的2个字节代表访问标志（`access_flags`），用于识别一些类或者接口层次的访问信息，包括：这个`Class`是类还是接口；是否定义为`public`类型；是否定义为`abstract` 类型；如果是类的话，是否被声明为`final`；等等。
+
+![访问标志](images/jvm_20200815095250.png)
+
+- 类索引、父类索引与接口索引集合
+
+类索引（`this_class`）和父类索引（`super_class`）都是一个`u2`类型的数据，而接口索引集合 （`interfaces`）是一组`u2`类型的数据的集合，`Class`文件中由这三项数据来确定该类型的继承关系。类索 引用于确定这个类的全限定名，父类索引用于确定这个类的父类的全限定名。
+
+代码清单6-1 类文件结构测试用例
+
+```java
+package com.jvm;
+
+/**
+ * 类文件结构测试用例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/15 12:28
+ */
+public class ClassTest {
+
+    private int number;
+
+    public int increase() {
+        return number + 1;
+    }
+}
+```
+
+![类索引查找全限定名的过程](images/jvm_20200815124935.png)
+
+- 字段表集合
+
+字段表（`field_info`）用于描述接口或者类中声明的变量。`Java`语言中的“字段”（`Field`）包括类级变量以及实例级变量，但不包括在方法内部声明的局部变量。
+
+![字段表结构](images/jvm_20200815125817.png)
+
+字段修饰符放在`access_flags`项目中，是一个`u2`的数据类型。
+
+![字段访问标志](images/jvm_20200815125833.png)
+
+由于语法规则的约束，`ACC_PUBLIC`、`ACC_PRIVATE` 、`ACC_PROTECTED` 三个标志最多只能选择其一，`ACC_FINAL`、`ACC_VOLATILE` 不能同时选择。接口之中的字段必须有 `ACC_PUBLIC`、`ACC_STATIC`、`ACC_FINAL`  标志，这些都是由 `Java` 本身的语言规则所导致的。
+
+跟随 `access_flags` 标志的是两项索引值：`name_index` 和 `descriptor_index`。它们都是对常量池项的引用，分别代表着字段的简单名称以及字段和方法的描述符。
+
+全限定名和简单名称：以代码清单6-1中的代码为例，“`com/jvm/ClassTest`”是这个类的**全限定名**，仅仅是把类全名中的“.”替换成了“/”而已，为了使连续的多个全限定名之间不产生混淆，在使用时最后一般会加入一个“；”号表示全限定名结束；**简单名称**则是指没有类型和参数修饰的方法或者字段名称，这个类中的 `increase()` 方法和 `number` 字段的简单名称分别就是“`increase`”和“`number`”。
+
+**描述符**的作用是用来描述字段的数据类型、方法的参数列表（包括数量、类型以及顺序）和返回值。根据描述符规则，基本数据类型（`byte`、`char`、`double`、`float`、`int`、`long`、`short`、`boolean`）以及代表无返回值的`void`类型都用一个大写字符来表示，而对象类型则用字符`L`加对象的全限定名来表示。
+
+![描述符标识字符含义](images/jvm_20200815125903.png)
+
+对于**数组类型**，每一维度将使用一个前置的“[”字符来描述，如一个定义为“`java.lang.String[][]`”类型的二维数组将被记录成“`[[Ljava/lang/String；`”，一个整型数组“`int[]`”将被记录成“`[I`”。
+
+用描述符来描述**方法**时，按照先参数列表、后返回值的顺序描述，参数列表按照参数的严格顺序放在一组小括号“`()`”之内。如方法 `void inc()` 的描述符为“`()V`”；方法 `java.lang.String toString()` 的描述符 为“`()Ljava/lang/String；`”；方法 `int indexOf(char[]source，int sourceOffset，int sourceCount，char[]target， int targetOffset，int targetCount，int fromIndex)` 的描述符为“`([CII[CIII)I`”。
+
+- 方法表集合
+
+方法表的结构依次包括访问标志（`access_flags`）、名称索引（`name_index`）、描述符索引（`descriptor_index`）、属性表 集合（`attributes`）。
+
+在`Java`语言中，要重载（`Overload`）一个方法，除了要与原方法具有相同的简单名称之外，还要求必须拥有一个与原方法不同的特征签名。**特征签名**是指一个方法中各个参数在常量池中的字段符号引用的集合。如果两个方法有相同的名称和特征签名，但返回值不同，那么也是可以合法共存于同一个`Class`文件中的。
+
+![方法表结构](images/jvm_20200815234303.png)
+
+![方法访问标志](images/jvm_20200815234331.png)
+
+- 属性表集合
+
+属性表（`attribute_info`），`Class`文件、字段表、方法表都可以携带自己的属性表集合，以描述某些场景专有的信息。
+
+对于每一个属性，它的名称都要从常量池中引用一个`CONSTANT_Utf8_info`类型的常量来表示， 而属性值的结构则是完全自定义的，只需要通过一个`u4`的长度属性去说明属性值所占用的位数即可。
+
+![属性表结构](images/jvm_20200815235557.png)
+
+1）`Code`属性
+
+`Java` 程序方法体里面的代码经过 `Javac` 编译器处理之后，最终变为字节码指令存储在 `Code` 属性内。`Code` 属性出现在方法表的属性集合之中，但并非所有的方法表都必须存在这个属性，如接口或者抽象类中的方法就不存在`Code`属性。
+
+![Code属性表的结构](images/jvm_20200815235910.png)
+
+**说明**：
+
+> `attribute_name_index` 是一项指向 `CONSTANT_Utf8_info` 型常量的索引，此常量值固定为“`Code`”，它 代表了该属性的属性名称；
+>
+> `attribute_length`指示了属性值的长度，由于属性名称索引与属性长度一共为6个字节，所以属性值的长度固定为整个属性表长度减去6个字节；
+>
+> `max_stack` 代表了操作数栈（`Operand Stack`）深度的最大值。在方法执行的任意时刻，操作数栈都 不会超过这个深度。虚拟机运行的时候需要根据这个值来分配栈帧（`Stack Frame`）中的操作栈深度；
+>
+> `max_locals` 代表了局部变量表所需的存储空间，单位是变量槽（`Slot`），**变量槽**是虚拟机为局部变量分配内存所使用的最小单位；
+>
+> `code_length`和`code`用来存储`Java`源程序编译后生成的字节码指令。`code_length`代表字节码长度，` code`是用于存储字节码指令的一系列字节流。**字节码指令**，顾名思义每个指令就是一个`u1`类型的单字节，当虚拟机读取到`code`中的一个字节码时，就可以对应找出这个字节码代表的是什么指令，并且可以知道这条指令后面是否需要跟随参数，以及后续的参数应当如何解析。
+
+字节码分析：
+
+```bash
+☁  java [interview] ⚡  jjavap -verbose com.jvm.ClassTest                   
+Classfile /home/projects/java_pro/java_projects/interview/src/main/java/com/jvm/ClassTest.class
+  Last modified 2020年8月15日; size 293 bytes
+  MD5 checksum 61e56613c3b29b394a1ea4dbdc0aca53
+  Compiled from "ClassTest.java"
+public class com.jvm.ClassTest
+  minor version: 0
+  major version: 55
+  flags: (0x0021) ACC_PUBLIC, ACC_SUPER
+  this_class: #3                          // com/jvm/ClassTest
+  super_class: #4                         // java/lang/Object
+  interfaces: 0, fields: 1, methods: 2, attributes: 1
+Constant pool:
+   #1 = Methodref          #4.#15         // java/lang/Object."<init>":()V
+   #2 = Fieldref           #3.#16         // com/jvm/ClassTest.number:I
+   #3 = Class              #17            // com/jvm/ClassTest
+   #4 = Class              #18            // java/lang/Object
+   #5 = Utf8               number
+   #6 = Utf8               I
+   #7 = Utf8               <init>
+   #8 = Utf8               ()V
+   #9 = Utf8               Code
+  #10 = Utf8               LineNumberTable
+  #11 = Utf8               increase
+  #12 = Utf8               ()I
+  #13 = Utf8               SourceFile
+  #14 = Utf8               ClassTest.java
+  #15 = NameAndType        #7:#8          // "<init>":()V
+  #16 = NameAndType        #5:#6          // number:I
+  #17 = Utf8               com/jvm/ClassTest
+  #18 = Utf8               java/lang/Object
+{
+  public com.jvm.ClassTest();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 10: 0
+
+  public int increase();
+    descriptor: ()I
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=2, locals=1, args_size=1
+         0: aload_0
+         1: getfield      #2                  // Field number:I
+         4: iconst_1
+         5: iadd
+         6: ireturn
+      LineNumberTable:
+        line 15: 0
+}
+SourceFile: "ClassTest.java"
+```
+
+这个类有两个方法——实例构 造器`<init>()`和`increase()`，这两个方法很明显都是没有参数的，为什么`args_size`会为1？而且无论是在参数列表里还是方法体内，都没有定义任何局部变量，那`locals`又为什么会等于1？
+
+答案：在任何实例方法里面，都可以通过“`this`”关键字访问到此方法所属的对象。在实例方法的局部变量表中至少会存在一个指向当前对象实例的局部变量，局部变量表中也会预留出第一个变量槽位来存放对象实例的引用，所以实例方法参数值从1开始计算。
+
+如果存在异常表，它应该包含四个字段，这些字段的含义为：如果当字节码从第`start_pc`行到第`end_pc`行之间（不含第`end_pc`行）出现了类型为`catch_type`或者其子类的异常（`catch_type`为指向一个`CONSTANT_Class_info`型常量的索引），则转到第`handler_pc`行继续处理。当 `catch_type` 的值为0时，代表任意异常情况都需要转到`handler_pc`处进行处理。
+
+![异常属性表结构](images/jvm_20200816132651.png)
+
+代码清单6-2 异常表运作实例
+
+```java
+package com.jvm;
+
+/**
+ * 异常表运作实例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/16 13:30
+ */
+public class ExceptionInstance {
+
+    private static int getNumber() {
+        int x;
+        try {
+            x = 1;
+            return x;
+        } catch (Exception e) {
+            x = 2;
+            return x;
+        } finally {
+            x = 3;
+            System.out.println(x);
+        }
+    }
+
+    public static void main(String[] args) {
+        System.out.println(getNumber());
+    }
+}
+```
+
+编译后，字节码为：
+
+```bash
+☁  java [interview] ⚡  /Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home/bin/javap -verbose com.jvm.ExceptionInstance 
+Classfile /home/projects/java_pro/java_projects/interview/src/main/java/com/jvm/ExceptionInstance.class
+  Last modified 2020-8-16; size 680 bytes
+  MD5 checksum 4de130fcf098363c0f055a0a1b2fa81d
+  Compiled from "ExceptionInstance.java"
+public class com.jvm.ExceptionInstance
+  minor version: 0
+  major version: 52
+  flags: ACC_PUBLIC, ACC_SUPER
+Constant pool:
+   #1 = Methodref          #7.#21         // java/lang/Object."<init>":()V
+   #2 = Fieldref           #22.#23        // java/lang/System.out:Ljava/io/PrintStream;
+   #3 = Methodref          #24.#25        // java/io/PrintStream.println:(I)V
+   #4 = Class              #26            // java/lang/Exception
+   #5 = Methodref          #6.#27         // com/jvm/ExceptionInstance.getNumber:()I
+   #6 = Class              #28            // com/jvm/ExceptionInstance
+   #7 = Class              #29            // java/lang/Object
+   #8 = Utf8               <init>
+   #9 = Utf8               ()V
+  #10 = Utf8               Code
+  #11 = Utf8               LineNumberTable
+  #12 = Utf8               getNumber
+  #13 = Utf8               ()I
+  #14 = Utf8               StackMapTable
+  #15 = Class              #26            // java/lang/Exception
+  #16 = Class              #30            // java/lang/Throwable
+  #17 = Utf8               main
+  #18 = Utf8               ([Ljava/lang/String;)V
+  #19 = Utf8               SourceFile
+  #20 = Utf8               ExceptionInstance.java
+  #21 = NameAndType        #8:#9          // "<init>":()V
+  #22 = Class              #31            // java/lang/System
+  #23 = NameAndType        #32:#33        // out:Ljava/io/PrintStream;
+  #24 = Class              #34            // java/io/PrintStream
+  #25 = NameAndType        #35:#36        // println:(I)V
+  #26 = Utf8               java/lang/Exception
+  #27 = NameAndType        #12:#13        // getNumber:()I
+  #28 = Utf8               com/jvm/ExceptionInstance
+  #29 = Utf8               java/lang/Object
+  #30 = Utf8               java/lang/Throwable
+  #31 = Utf8               java/lang/System
+  #32 = Utf8               out
+  #33 = Utf8               Ljava/io/PrintStream;
+  #34 = Utf8               java/io/PrintStream
+  #35 = Utf8               println
+  #36 = Utf8               (I)V
+{
+  public com.jvm.ExceptionInstance();
+    descriptor: ()V
+    flags: ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 10: 0
+
+  public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=2, locals=1, args_size=1
+         0: getstatic     #2                  // Field java/lang/System.out:Ljava/io/PrintStream;
+         3: invokestatic  #5                  // Method getNumber:()I
+         6: invokevirtual #3                  // Method java/io/PrintStream.println:(I)V
+         9: return
+      LineNumberTable:
+        line 27: 0
+        line 28: 9
+}
+SourceFile: "ExceptionInstance.java"
+```
+
+2） `Exceptions` 属性
+
+`Exceptions` 属性的作用是列举出方法中可能抛出的受查异常（`Checked Excepitons`），也 就是方法描述时在`throws`关键字后面列举的异常。
+
+![Exceptions属性结构](images/jvm_20200816135942.png)
+
+3）`LineNumberTable`属性
+
+`LineNumberTable`属性用于描述`Java`源码行号与字节码行号（字节码的偏移量）之间的对应关系。
+
+![LineNumberTable属性结构](images/jvm_20200816140236.png)
+
+4）`LocalVariableTable`及`LocalVariableTypeTable`属性
+
+`LocalVariableTable`属性用于描述栈帧中局部变量表的变量与`Java`源码中定义的变量之间的关系，它也不是运行时必需的属性，但默认会生成到`Class`文件之中，可以在`Javac`中使用`-g：none`或`-g：vars`选项来取消或要求生成这项信息。如果没有生成这项属性，最大的影响就是当其他人引用这个方法时，所有的参数名称都将会丢失。
+
+![LocalVariableTable属性结构](images/jvm_20200816184453.png)
+
+![local_variable_info项目结构](images/jvm_20200816184508.png)
+
+**说明**：
+
+> `start_pc` 和 `length` 属性分别代表了这个局部变量的生命周期开始的字节码偏移量及其作用范围覆盖的长度，两者结合起来就是这个局部变量在字节码之中的作用域范围；
+>
+> `name_index`和`descriptor_index`都是指向常量池中`CONSTANT_Utf8_info`型常量的索引，分别代表了局部变量的名称以及这个局部变量的描述符；
+>
+> `index`是这个局部变量在栈帧的局部变量表中变量槽的位置。当这个变量数据类型是64位类型时 （`double`和`long`），它占用的变量槽为`index`和`index+1`两个。
+>
+> 在`JDK 5`引入泛型之后，`LocalVariableTable`属性增加了一个“姐妹属性”—`LocalVariableTypeTable`，仅仅是把记录的字段描述符的`descriptor_index`替换成了字段的特征签名（`Signature`）。
+>
+
+5）`SourceFile`及`SourceDebugExtension`属性
+
+`SourceFile`属性用于记录生成这个`Class`文件的源码文件名称。这个属性也是可选的，可以使用`Javac` 的`-g：none`或`-g：source`选项来关闭或要求生成这项信息。
+
+![SourceFile属性结构](images/jvm_20200816185300.png)
+
+**说明**：
+
+> `sourcefile_index`数据项是指向常量池中`CONSTANT_Utf8_info`型常量的索引，常量值是源码文件的文件名。
+
+在`JDK 5`时，新增了 `SourceDebugExtension` 属性用于存储额外的代码调试信息。典型的场景是在进行`JSP`文件调试时，无法通过`Java`堆栈来定位到`JSP`文件的行号。
+
+![SourceDebugExtension属性结构](images/jvm_20200816185934.png)
+
+**说明**：
+
+> `debug_extension`存储的就是额外的调试信息，是一组通过变长`UTF-8`格式来表示的字符串。一 个类中最多只允许存在一个`SourceDebugExtension`属性。
+
+6）`ConstantValue`属性
+
+`Cons ConstantValue`属性的作用是通知虚拟机自动为静态变量赋值。只有被`static`关键字修饰的变量（类变量）才可以使用这项属性。
+
+> 对非static类型的变量（也就是 实例变量）的赋值是在实例构造器`<init>()`方法中进行的；而对于类变量，则有两种方式可以选择：在 类构造器`<clinit>()`方法中或者使用`ConstantValue`属性。
+
+![ConstantValue属性结构](images/jvm_20200816190448.png)
+
+7）`InnerClasses`属性
+
+`InnerClasses`属性用于记录内部类与宿主类之间的关联。如果一个类中定义了内部类，那编译器将会为它以及它所包含的内部类生成`InnerClasses`属性。
+
+![InnerClasses属性结构](images/jvm_20200816190707.png)
+
+数据项`number_of_classes`代表需要记录多少个内部类信息，每一个内部类的信息都由一个 `inner_classes_info` 表进行描述。
+
+![inner_classes_info表的结构](images/jvm_20200816190939.png)
+
+**说明**：
+
+> `inner_class_info_index`和`outer_class_info_index`都是指向常量池中`CONSTANT_Class_info`型常量的索 引，分别代表了内部类和宿主类的符号引用；
+>
+> `inner_name_index`是指向常量池中`CONSTANT_Utf8_info`型常量的索引，代表这个内部类的名称，如果是匿名内部类，这项值为0；
+>
+> `inner_class_access_flags`是内部类的访问标志，类似于类的`access_flags`。
+
+![inner_class_access_flags标志](images/jvm_20200816191046.png)
+
+8）`Deprecated`及`Synthetic`属性
+
+`Deprecated`和`Synthetic`两个属性都属于标志类型的布尔属性，只存在有和没有的区别，没有属性值的概念。
+
+`Deprecated`属性用于表示某个类、字段或者方法，已经被程序作者定为不再推荐使用，它可以通过代码中使用“`@deprecated`”注解进行设置。
+
+`Synthetic` 属性代表此字段或者方法并不是由`Java`源码直接产生的，而是由编译器自行添加的，在 `JDK 5` 之后，标识一个类、字段或者方法是编译器自动产生的，也可以设置它们访问标志中的 `ACC_SYNTHETIC` 标志位。
+
+![Deprecated及Synthetic属性结构](images/jvm_20200816191930.png)
+
+**说明**：
+
+> `attribute_length`数据项的值必须为`0x00000000`，因为没有任何属性值需要设置。
+
+9）`StackMapTable`属性 
+
+`StackMapTable`属性在`JDK 6`增加到`Class`文件规范之中，它是一个相当复杂的变长属性，位于`Code` 属性的属性表中。这个属性会在虚拟机类加载的字节码验证阶段被新类型检查验证器（`Type Checker`）使用，目的在于代替以前比较消耗性能的基于数据流分析的 类型推导验证器。这个类型检查验证器最初来源于`Sheng Liang`实现为`Jav ME CLDC`实现的字节码验证器。
+
+`StackMapTable`属性中包含零至多个栈映射帧（`Stack Map Frame`），每个栈映射帧都显式或隐式地代表了一个字节码偏移量，用于表示执行到该字节码时局部变量表和操作数栈的验证类型。
+
+![StackMapTable属性结构](images/jvm_20200816192540.png)
+
+10）`Signature`属性
+
+`Signature`属性在`JDK 5`增加到`Class`文件规范之中，它是一个可选的定长属性，可以出现于类、字段 表和方法表结构的属性表中。
+
+![Signature属性结构](images/jvm_20200816192932.png)
+
+11）`BootstrapMethods`属性 
+
+`BootstrapMethods`属性在`JDK 7`时增加到`Class`文件规范之中，它是一个复杂的变长属性，位于类文件的属性表中。这个属性用于保存`invokedynamic`指令引用的引导方法限定符。
+
+![BootstrapMethods属性结构](images/jvm_20200816193556.png)
+
+![bootstrap_method属性结构](images/jvm_20200816193627.png)
+
+**说明**：
+
+> `bootstrap_method_ref` ：值必须是一个对常量池的有效索引。常量池在该索引处的值必须是一个`CONSTANT_MethodHandle_info`结构；
+>
+> `num_bootstrap_arguments`：值给出了`bootstrap_argu-ments[]` 数组成员的数量；
+>
+> `bootstrap_arguments[]`：数组的每个成员必须是一个对常量池的有效索引。 常量池在该索引出必须是下列结构之一：`CONSTANT_String_info`、`CONSTANT_Class_info`、 `CONSTANT_Integer_info`、`CONSTANT_Long_info`、`CONSTANT_Float_info`、 `CONSTANT_Double_info`、`CONSTANT_MethodHandle_info` 或 `CONSTANT_MethodType_info`。
+
+12） `MethodParameters`属性 
+
+`MethodParameters`是在`JDK 8`时新加入到`Class`文件格式中的，它是一个用在方法表中的变长属性。 `MethodParameters`的作用是记录方法的各个形参名称和信息。
+
+![MethodParameters属性结构](images/jvm_20200816194134.png)
+
+![parameter属性结构](images/jvm_20200816194206.png)
+
+**说明**：
+
+> `name_index`是一个指向常量池`CONSTANT_Utf8_info`常量的索引值，代表了该参数的名称。而`access_flags`是参数的状态指示器，它可以包含以下三种状态中的一种或多种：
+>
+> > `0x0010（ACC_FINAL）`：表示该参数被`final`修饰；
+> >
+> > `0x1000（ACC_SYNTHETIC）`：表示该参数并未出现在源文件中，是编译器自动生成的；
+> >
+> > `0x8000（ACC_MANDATED）`：表示该参数是在源文件中隐式定义的。`Java`语言中的典型场景是 `this` 关键字。
+
+13）模块化相关属性
+
+`JDK 9`的一个重量级功能是`Java`的模块化功能，因为模块描述文件（`module-info.java`）最终是要编译成一个独立的`Class`文件来存储的，所以，`Class`文件格式也扩展了`Module`、`ModulePackages`和 `ModuleMainClass` 三个属性用于支持`Java`模块化相关功能。
+
+`Module`属性是一个非常复杂的变长属性，除了表示该模块的名称、版本、标志信息以外，还存储 了这个模块 `requires`、`exports`、`opens`、`uses`和`provides`定义的全部内容。
+
+![Module属性结构](images/jvm_20200816194741.png)
+
+**说明**：
+
+> `module_name_index`是一个指向常量池`CONSTANT_Utf8_info`常量的索引值，代表了该模块的名称；
+>
+> `module_flags`是模块的状态指示器，它可以包含以下三种状态中的一种或多种： 
+>
+> > `0x0020（ACC_OPEN）`：表示该模块是开放；
+> >
+> > `0x1000（ACC_SYNTHETIC）`：表示该模块并未出现在源文件中，是编译器自动生成的； 
+> >
+> > `0x8000（ACC_MANDATED）`：表示该模块是在源文件中隐式定义的。
+>
+>  `module_version_index`是一个指向常量池`CONSTANT_Utf8_info`常量的索引值，代表了该模块的版本号。
+
+![exports属性结构](images/jvm_20200816195138.png)
+
+**说明**：
+
+> `exports`属性的每一元素都代表一个被模块所导出的包；
+>
+> `exports_index`是一个指向常量池 `CONSTANT_Package_info` 常量的索引值，代表了被该模块导出的包；
+>
+> `exports_flags`是该导出包的状态指示器，它可以包含以下两种状态中的一种或多种：
+>
+> > `0x1000（ACC_SYNTHETIC）`：表示该导出包并未出现在源文件中，是编译器自动生成的；
+> >
+> > `0x8000（ACC_MANDATED）`：表示该导出包是在源文件中隐式定义的。
+>
+> `exports_to_count`是该导出包的限定计数器，如果这个计数器为零，这说明该导出包是无限定的 （`Unqualified`），即完全开放的，任何其他模块都可以访问该包中所有内容。如果该计数器不为零， 则后面的`exports_to_index`是以计数器值为长度的数组，每个数组元素都是一个指向常量池中 `CONSTANT_Module_info`常量的索引值，代表着只有在这个数组范围内的模块才被允许访问该导出包的内容。
+
+`ModulePackages`是用于支持Java模块化的变长属性，它用于描述该模块中所有的包，不论是不是被`export`或者`open`的。
+
+![ModulePackages属性结构](images/jvm_20200816195316.png)
+
+`ModuleMainClass` 属性是一个定长属性，用于确定该模块的主类（`Main Class`）。
+
+![ModuleMainClass属性结构](images/jvm_20200816195416.png)
+
+14）运行时注解相关
+
+`RuntimeVisibleAnnotations`是一个变长属性，它记录了类、字段或方法的声明上记录运行时可见注解，当我们使用反射`API`来获取类、字段或方法上的注解时，返回值就是通过这个属性来取到的。
+
+![RuntimeVisibleAnnotations属性结构](images/jvm_20200816200403.png)
+
+![annotation属性结构](images/jvm_20200816200526.png)
+
+#### 3，字节码指令
+
+`Java`虚拟机的**指令**由一个字节长度的、代表着某种特定操作含义的数字（称为操作码，`Opcode`） 以及跟随其后的零至多个代表此操作所需的参数（称为操作数，`Operand`）构成。
+
+- 字节码与数据类型
+
+对于大部分与数据类型相关的**字节码指令**，它们的操作码助记符中都有特殊的字符来表明专门为哪种数据类型服务：`i`代表对`int`类型的数据操作，`l`代表`long`，`s`代表`short`，`b`代表`byte`，`c`代表`char`，`f`代表 `float`，`d`代表`double`，`a`代表`reference`；也有一些指令的助记符中没有明确指明操作类型的字母，如 ·arraylength· 指令，它没有代表数据类型的特殊字符，但操作数永远只能是一个数组类型的对象；还有另 外一些指令，如无条件跳转指令`goto`则是与数据类型无关的指令。
+
+![Java虚拟机指令集所支持的数据类型](images/jvm_20200816201507.png)
+
+![Java虚拟机指令集所支持的数据类型(续)](images/jvm_20200816201519.png)
+
+- 加载和存储指令
+
+**加载和存储指令** 用于将数据在栈帧中的局部变量表和操作数栈之间来回传输，这类指令包括：
+
+> 将一个局部变量加载到操作栈：`iload、iload_<n>、lload、lload_<n>、fload、fload_<n>、dload、 dload_<n>、aload、aload_<n>`；
+>
+> 将一个数值从操作数栈存储到局部变量表：`istore、istore_<n>、lstore、lstore_<n>、fstore、 fstore_<n>、dstore、dstore_<n>、astore、astore_<n>`；
+>
+> 将一个常量加载到操作数栈：`bipush、sipush、ldc、ldc_w、ldc2_w、aconst_null、iconst_m1、 iconst_<i>、lconst_<l>、fconst_<f>、dconst_<d>`；
+>
+> 扩充局部变量表的访问索引的指令：`wide`
+
+- 运算指令
+
+**算术指令**用于对两个操作数栈上的值进行某种特定运算，并把结果重新存入到操作栈顶。大体上运算指令可以分为两种：
+
+> 对整型数据进行运算的指令：
+>
+> 对浮点型数据进行运算的指令。
+>
+> 不存在直接支持`byte`、`short`、`char`和`boolean`类型的算术指令，应使用操作`int`类型的指令代替。
+
+所有的算术指令包括：
+
+> 加法指令：`iadd、ladd、fadd、dadd`；
+>
+> 减法指令：`isub、lsub、fsub、dsub`； 
+>
+> 乘法指令：`imul、lmul、fmul、dmul`；
+>
+> 除法指令：`idiv、ldiv、fdiv、ddiv`；
+>
+> 求余指令：`irem、lrem、frem、drem`；
+>
+> 取反指令：`ineg、lneg、fneg、dneg`；
+>
+> 位移指令：`ishl、ishr、iushr、lshl、lshr、lushr`；
+>
+> 按位或指令：`ior、lor`；
+>
+> 按位与指令：`iand、land`；
+>
+> 按位异或指令：`ixor、lxor`；
+>
+> 局部变量自增指令：`iinc`；
+>
+> 比较指令：`dcmpg、dcmpl、fcmpg、fcmpl、lcmp`
+
+- 类型转换指令
+
+**类型转换指令**可以将两种不同的数值类型相互转换，这些转换操作一般用于实现用户代码中的显式类型转换操作，或者用来处理字节码指令集中数据类型相关指令无法与数据类型 一一对应的问题。
+
+`Java`虚拟机直接支持（即转换时无须显式的转换指令）以下数值类型的**宽化类型转换**（`Widening Numeric Conversion`，即小范围类型向大范围类型的安全转换）：
+
+> `int`类型到`long`、`float`或者`double`类型
+>
+> `long`类型到`float`、`double`类型 
+>
+> `float`类型到`double`类型
+
+处理**窄化类型转换**（`Narrowing Numeric Conversion`）时，就必须显式地使用转换指令来完成，这些转换指令包括`i2b`、`i2c`、`i2s`、`l2i`、`f2i`、`f2l`、`d2i`、`d2l`和`d2f`。窄化类型转换可能会导致转换结果产生不同的正负号、不同的数量级的情况，转换过程很可能会导致数值的精度丢失。
+
+- 对象创建与访问指令
+
+`Java`虚拟机对类实例和数组的创建与操作使用了不同的字节码指令。对象创建后，就可以通过**对象访问指令**获取对象实例或者数组实例中的字段或者数组元素，这些指令包括：
+
+> 创建类实例的指令：`new` 
+>
+> 创建数组的指令：`newarray`、`anewarray`、`multianewarray` 
+>
+> 访问类字段（`static`字段，或者称为类变量）和实例字段（非`static`字段，或者称为实例变量）的 指令：`getfield`、`putfield`、`getstatic`、`putstatic`
+>
+> 把一个数组元素加载到操作数栈的指令：`baload`、`caload`、`saload`、`iaload`、`laload`、`faload`、 `daload`、`aaload`
+>
+>  将一个操作数栈的值储存到数组元素中的指令：`bastore`、`castore`、`sastore`、`iastore`、`fastore`、 `dastore`、`aastore` 
+>
+> 取数组长度的指令：`arraylength` 
+>
+> 检查类实例类型的指令：`instanceof`、`checkcast`
+
+- 操作数栈管理指令
+
+`Java`虚拟机提供了一些用于直接操作操作数栈的指令，包括：
+
+> 将操作数栈的栈顶一个或两个元素出栈：`pop`、`pop2` 
+>
+> 复制栈顶一个或两个数值并将复制值或双份的复制值重新压入栈顶：`dup`、`dup2`、`dup_x1`、` dup2_x1`、`dup_x2`、`dup2_x2` 
+>
+> 将栈最顶端的两个数值互换：`swap`
+
+- 控制转移指令
+
+**控制转移指令**可以让`Java`虚拟机有条件或无条件地从指定位置指令（而不是控制转移指令）的下 一条指令继续执行程序，从概念模型上理解，可以认为控制指令就是在有条件或无条件地修改`PC`寄存器的值。控制转移指令包括：
+
+> 条件分支：`ifeq、iflt、ifle、ifne、ifgt、ifge、ifnull、ifnonnull、if_icmpeq、if_icmpne、if_icmplt、 if_icmpgt、if_icmple、if_icmpge、if_acmpeq` 和 `if_acmpn`
+>
+> 复合条件分支：`tableswitch`、`lookupswitch`
+>
+> 无条件分支：`goto、goto_w、jsr、jsr_w、ret`
+
+- 方法调用和返回指令
+
+**方法调用**（分派、执行过程）有如下指令：
+
+> `invokevirtual`指令：用于调用对象的实例方法，根据对象的实际类型进行分派（虚方法分派）， 这也是 `Java` 语言中最常见的方法分派方式；
+>
+> `invokeinterface`指令：用于调用接口方法，它会在运行时搜索一个实现了这个接口方法的对象，找出适合的方法进行调用；
+>
+> `invokespecial`指令：用于调用一些需要特殊处理的实例方法，包括实例初始化方法、私有方法和父类方法；
+>
+> `invokestatic`指令：用于调用类静态方法（`static`方法）；
+>
+> `invokedynamic`指令：用于在运行时动态解析出调用点限定符所引用的方法并执行该方法；前面四条调用指令的分派逻辑都固化在`Java`虚拟机内部，用户无法改变，而`invokedynamic`指令的分派逻辑是由用户所设定的引导方法决定的。
+
+**方法返回指令**是根据返回值的类型区分的，包括 `ireturn`（当返回值是`boolean`、`byte`、`char`、`short`和`int`类型时使用）、`lreturn`、`freturn`、`dreturn` 和 `areturn`，另外还有一条`return`指令供声明为`void`的方法、实例初始化方法、类和接口的类初始化方法使用。
+
+- 异常处理指令
+
+在`Java`程序中显式抛出异常的操作（`throw`语句）都由`athrow`指令来实现，除了用`throw`语句显式抛出异常的情况之外，《`Java`虚拟机规范》还规定了许多运行时异常会在其他`Java`虚拟机指令检测到异常状况时自动抛出。
+
+在`Java`虚拟机中，处理异常（`catch`语句）不是由字节码指令来实现的（曾经使用`jsr`和 `ret`指令来实现，现已废弃），而是采用**异常表**来完成。
+
+- 同步指令
+
+`Java` 虚拟机可以支持方法级的同步和方法内部一段指令序列的同步，这两种同步结构都是使用**管程**（`Monitor`，更常见的是直接将它称为“**锁**”）来实现的。
+
+方法级的同步是**隐式**的，无须通过字节码指令来控制，它实现在方法调用和返回操作之中。虚拟机可以从方法常量池中的方法表结构中的 `ACC_SYNCHRONIZED` 访问标志得知一个方法是否被声明为同步方法。当方法调用时，调用指令将会检查方法的 `ACC_SYNCHRONIZED` 访问标志是否被设置，如果设置了，执行线程就要求先成功持有管程，然后才能执行方法，最后当方法完成（无论是正常完成还是非正常完成）时释放管程。在方法执行期间，执行线程持有了管程，其他任何线程都无法再获取到同一个管程。如果一个同步方法执行期间抛出了异常，并且在方法内部无法处理此异常，那这个同 步方法所持有的管程将在异常抛到同步方法边界之外时自动释放。
+
+同步一段指令集序列通常是由`Java`语言中的 `synchronized` 语句块来表示的，`Java` 虚拟机的指令集中有 `monitorenter` 和 `monitorexit` 两条指令来支持 `synchronized` 关键字的语义，正确实现 `synchronized` 关键字需要`Javac` 编译器与 `Java` 虚拟机两者共同协作支持。
+
+#### 4，公有设计，私有实现
+
+理解公有设计与私有实现之间的分界线是非常有必要的，任何一款 `Java` 虚拟机实现都必须能够读取 `Class` 文件并精确实现包含在其中的 `Java` 虚拟机代码的语义。一个优秀的虚拟机实现，在满足《`Java`虚拟机规范》的约束下对具体实现做出修改和优化也是完全可行的，只要优化以后 `Class` 文件依然可以被正确读取，并且包含在其中的语义能得到完整保持， 那实现者就可以选择以任何方式去实现这些语义，虚拟机在后台如何处理 `Class` 文件完全是实现者自己 的事情，只要它在外部接口上看起来与规范描述的一致即可。
+
+虚拟机实现者可以使用这种伸缩性来让 `Java` 虚拟机获得更高的性能、更低的内存消耗或者更好的可移植性，选择哪种特性取决于 `Java` 虚拟机实现的目标和关注点是什么，虚拟机实现的方式主要有：
+
+> 将输入的`Java`虚拟机代码在加载时或执行时翻译成另一种虚拟机的指令集； 
+>
+> 将输入的`Java`虚拟机代码在加载时或执行时翻译成宿主机处理程序的本地指令集（即即时编译器代码生成技术）。
+
+#### 5，Class文件结构的发展
+
+`Class`文件格式所具备的平台中立（不依赖于特定硬件及操作系统）、紧凑、稳定和可扩展的特 点，是`Java`技术体系实现平台无关、语言无关两项特性的重要支柱。
+
+## 七，虚拟机类加载机制
+
+#### 1，类加载的时机
+
+`Java` 虚拟机把描述类的数据从 `Class` 文件加载到内存，并对数据进行校验、转换解析和初始化，最终形成可以被虚拟机直接使用的 `Java` 类型，这个过程被称作**虚拟机的类加载机制**。
+
+一个类型从被加载到虚拟机内存中开始，到卸载出内存为止，它的整个**生命周期**将会经历**加载** （`Loading`）、**验证**（`Verification`）、**准备**（`Preparation`）、**解析**（`Resolution`）、**初始化** （`Initialization`）、**使用**（`Using`）和**卸载**（`Unloading`）七个阶段，其中验证、准备、解析三个部分统称为**连接**（`Linking`）。
+
+![类的生命周期](images/jvm_20200816211929.png)
+
+对于初始化阶段，《`Java`虚拟机规范》 则是严格规定了有且只有**六**种情况必须立即对类进行“初始化”：
+
+> 1）遇到`new`、`getstatic`、`putstatic` 或 `invokestatic` 这四条字节码指令时，如果类型没有进行过初始 化，则需要先触发其初始化阶段。能够生成这四条指令的典型 `Java` 代码场景有：
+>
+> > 使用`new`关键字实例化对象
+> >
+> > 读取或设置一个类型的静态字段（被`final`修饰、已在编译期把结果放入常量池的静态字段除外） 
+> >
+> > 调用一个类型的静态方法
+>
+> 2）使用 `java.lang.reflect` 包的方法对类型进行反射调用的时候，如果类型没有进行过初始化，则需要先触发其初始化；
+>
+> 3）当初始化类的时候，如果发现其父类还没有进行过初始化，则需要先触发其父类的初始化；
+>
+> 4）当虚拟机启动时，用户需要指定一个要执行的主类（包含 `main()` 方法的类），虚拟机会先初始化这个主类；
+>
+> 5）当使用 `JDK 7` 新加入的动态语言支持时，如果一个 `java.lang.invoke.MethodHandle` 实例最后的解析结果为 `REF_getStatic`、`REF_putStatic`、`REF_invokeStatic`、`REF_newInvokeSpecial` 四种类型的方法句 柄，并且这个方法句柄对应的类没有进行过初始化，则需要先触发其初始化；
+>
+> 6）当一个接口中定义了`JDK 8`新加入的默认方法（被`default` 关键字修饰的接口方法）时，如果有这个接口的实现类发生了初始化，那该接口要在其之前被初始化。
+
+上述六种场景中的行为称为对一个类型进行**主动引用**；除此之外，所有引用类型的方式都不会触发初始化，称为**被动引用**。
+
+代码清单7-1&7-2  通过子类引用父类的静态字段，不会导致子类初始化 & 通过数组定义来引用类，不会触发此类的初始化
+
+```java
+package com.jvm;
+
+/**
+ * 父类
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/16 21:31
+ */
+public class SuperClass {
+
+    static {
+        System.out.println("SuperClass init!");
+    }
+
+    public static int value = 123;
+}
+```
+
+```java
+package com.jvm;
+
+/**
+ * 子类
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/16 21:31
+ */
+public class SubClass extends SuperClass {
+
+    static {
+        System.out.println("SubClass init!");
+    }
+}
+```
+
+```java
+package com.jvm;
+
+/**
+ * 非主动使用类字段用例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/16 21:37
+ */
+public class NotInitialization {
+    public static void main(String[] args) {
+        
+        /**
+         * 被动使用类字段演示(1)：通过子类引用父类的静态字段，不会导致子类初始化
+         * 输出结果：
+         *        SuperClass init!
+         *        123
+         */
+        System.out.println(SubClass.value);
+
+        /**
+         * 被动使用类字段演示(2)：通过数组定义来引用类，不会触发此类的初始化
+         * 输出结果：无
+         */
+        SuperClass[] sca = new SuperClass[10];
+      
+      	/**
+         * 被动使用类字段演示(3)：常量在编译阶段会存入调用类的常量池中，本质上没有直接引用到定义常量的类，
+         *                    因此不会触发定义常量的 类的初始化
+         * 输出结果: Hello world
+         */
+        System.out.println(ConstClass.HELLO_WORLD);
+    }
+}
+```
+
+代码清单7-3  常量在编译阶段会存入调用类的常量池中，本质上没有直接引用到定义常量的类，因此不会触发定义常量的 类的初始化
+
+```java
+package com.jvm;
+
+/**
+ * 常量类
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/16 21:49
+ */
+public class ConstClass {
+
+    static {
+        System.out.println("ConstClass init!");
+    }
+
+    public static final String HELLO_WORLD = "Hello world";
+}
+```
+
+####  2，类加载的过程
+
+1）加载
+
+在 **加载** 阶段，`Java` 虚拟机需要完成以下事情：
+
+> 1）通过一个类的全限定名来获取定义此类的二进制字节流；
+>
+> 2）将这个字节流所代表的静态存储结构转化为方法区的运行时数据结构；
+>
+> 3）在内存中生成一个代表这个类的 `java.lang.Class` 对象，作为方法区这个类的各种数据的访问入口。
+
+相对于类加载过程的其他阶段，**非数组类型**的加载阶段（加载阶段中获取类的二进 制字节流的动作）是开发人员可控性最强的阶段。加载阶段既可以使用`Java`虚拟机里内置的引导类加载器来完成，也可以由用户自定义的类加载器去完成，开发人员通过定义自己的类加载器去控制字节流的获取方式，实现根据自己的想法来赋予应用程序获取运行代码的动态性。
+
+对于**数组类**而言，因其本身不通过类加载器创建，它是由`Java`虚拟机直接在内存中动态构造出来的。
+
+2）验证
+
+**验证**是连接阶段的第一步，目的是确保`Class`文件的字节流中包含的信息符合《`Java`虚拟机规范》的全部约束要求，保证这些信息被当作代码运行后不会危害虚拟机自身的安全。
+
+从整体上看，验证阶段大致上会完成下面四个阶段的检验动作：
+
+> **文件格式验证**：验证字节流是否符合 `Class` 文件格式的规范，并且能被当前版本的虚拟机处理。
+>
+> **元数据验证**：对字节码描述的信息进行语义分析，以保证其描述的信息符合《`Java`语言规范》的要求。
+>
+> **字节码验证**：整个验证过程中最复杂的一个阶段，主要目的是通过数据流分析和控制流分析，确定程序语义是合法的、符合逻辑的。
+>
+> **符号引用验证**：校验行为发生在虚拟机将符号引用转化为直接引用的时候，这个转化动作将在连接的第三阶段——解析阶段中发生。符号引用验证可以看作是对类自身以外（常量池中的各种符号引用）的各类信息进行匹配性校验，即该类是否缺少或者被禁止访问它依赖的某些外部类、方法、字段等资源。
+
+3）准备
+
+**准备**阶段是正式为类中定义的变量（即静态变量，被`static`修饰的变量）分配内存并设置类变量初始值的阶段，从概念上讲，这些变量所使用的内存都应当在方法区中进行分配，但必须注意到方法区本身是一个逻辑上的区域，在`JDK 7`及之前，`HotSpot` 使用永久代来实现方法区时，实现是完全符合这种逻辑概念的；而在 `JDK 8` 及之后，类变量则会随着 `Class` 对象一起存放在 `Java` 堆中，这时候“类变量在 方法区”就完全是一种对逻辑概念的表述。
+
+4）解析
+
+**解析**阶段是 `Java` 虚拟机将常量池内的符号引用替换为直接引用的过程，符号引用在 `Class` 文件中它以`CONSTANT_Class_info`、`CONSTANT_Fieldref_info`、`CONSTANT_Methodref_info` 等类型的常量出现，那解析阶段中所说的直接引用与符号引用又有什么关联呢？
+
+> **符号引用**（`Symbolic References`）：以一组符号来描述所引用的目标，符号可以是任何形式的字面量，只要使用时能无歧义地定位到目标即可。符号引用与虚拟机实现的内存布局无关，但是各种虚拟机能接受的符号引用必须都是一致的，因为符号引用的字面量形式明确定义在《`Java`虚拟机规范》的 `Class` 文件格式中；
+>
+> **直接引用**（`Direct References`）：是可以直接指向目标的指针、相对偏移量或者是一个能间接定位到目标的句柄。直接引用是和虚拟机实现的内存布局直接相关的，同一个符号引用在不同虚拟机实例上翻译出来的直接引用一般不会相同。
+
+《`Java` 虚拟机规范》之中并未规定解析阶段发生的具体时间，只要求了在执行 `ane-warray、 checkcast、getfield、getstatic、instanceof、invokedynamic、invokeinterface、invoke-special、 invokestatic、invokevirtual、ldc、ldc_w、ldc2_w、multianewarray、new、putfield、putstatic` 这17个用于操作符号引用的字节码指令之前，先对它们所使用的符号引用进行解析。
+
+对同一个符号引用进行多次解析请求，除 `invokedynamic` 指令以外，虚拟机实现可以对第一次解析的结果进行缓存。
+
+解析动作主要针对类或接口、字段、类方法、接口方法、方法类型、方法句柄和调用点限定符这7类符号引用进行，分别对应于常量池的 `CONSTANT_Class_info、CON-STANT_Fieldref_info、 CONSTANT_Methodref_info、CONSTANT_InterfaceMethodref_info、 CONSTANT_MethodType_info、CONSTANT_MethodHandle_info、CONSTANT_Dyna-mic_info、CONSTANT_InvokeDynamic_info` 8种常量类型。
+
+- 类或接口的解析
+
+假设当前代码所处的类为 $D$，如果要把一个从未解析过的符号引用 $N$ 解析为一个类或接口 $C$ 的直接引用，那虚拟机完成整个解析的过程需要包括以下步骤：
+
+> 1）如果 $C$ 不是一个数组类型，那虚拟机将会把代表 $N$ 的全限定名传递给 $D$ 的类加载器去加载这个类 $C$。在加载过程中，由于元数据验证、字节码验证的需要，又可能触发其他相关类的加载动作，如加载这个类的父类或实现的接口。一旦这个加载过程出现了任何异常，解析过程就将宣告失败；
+>
+> 2）如果 $C$ 是一个数组类型，并且数组的元素类型为对象，也就是 $N$ 的描述符会是类似“ `[Ljava/lang/Integer` ” 的形式，那将会按照1）的规则加载数组元素类型。如果 $N$ 的描述符如前面所假设的形式，需要加载的元素类型就是“ `java.lang.Integer` ”，接着由虚拟机生成一个代表该数组维度和元素的数组对象；
+>
+> 3）如果上面两步没有出现任何异常，那么 $C$ 在虚拟机中实际上已经成为一个有效的类或接口，但在解析完成前还要进行符号引用验证，确认 $D$ 是否具备对 $C$ 的访问权限。如果发现不具备访问权限，将抛出  `java.lang.IllegalAccessError `异常。
+
+- 字段解析
+
+要解析一个未被解析过的字段符号引用，首先将会对字段表内 `class_index` 项中索引的 `CONSTANT_Class_info` 符号引用进行解析，也就是字段所属的类或接口的符号引用。如果在解析这个类或接口符号引用的过程中出现了任何异常，都会导致字段符号引用解析的失败。如果解析成功完成，那把这个字段所属的类或接口用 $C$ 表示，《`Java` 虚拟机规范》要求按照如下步骤对 $C$ 进行后续字段的搜索：
+
+> 1）如果 $C$ 本身就包含了简单名称和字段描述符都与目标相匹配的字段，则返回这个字段的直接引用，查找结束；
+>
+> 2）否则，如果在 $C$ 中实现了接口，将会按照继承关系从下往上递归搜索各个接口和它的父接口，如果接口中包含了简单名称和字段描述符都与目标相匹配的字段，则返回这个字段的直接引用，查找结束；
+>
+> 3）否则，如果 $C$ 不是 `java.lang.Object` 的话，将会按照继承关系从下往上递归搜索其父类，如果在父类中包含了简单名称和字段描述符都与目标相匹配的字段，则返回这个字段的直接引用，查找结束；
+>
+> 4）否则，查找失败，抛出 `java.lang.NoSuchFieldError` 异常；
+>
+> 5）如果查找过程成功返回了引用，将会对这个字段进行权限验证，如果发现不具备对字段的访问权限，将抛出 `java.lang.IllegalAccessError` 异常。
+
+代码清单7-4	字段解析
+
+```java
+package com.jvm;
+
+/**
+ * 字段解析
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/17 01:07
+ */
+public class FieldResolution {
+
+    interface Interdace0 {
+        int number = 0;
+    }
+
+    interface Interdace1 extends Interdace0 {
+        int number = 1;
+    }
+
+    interface Interdace2 {
+        int number = 2;
+    }
+
+    static class Parent implements Interdace1 {
+        public static int number = 3;
+    }
+
+    static class Children extends Parent implements Interdace2 {
+        /**
+         * 若注释掉，会抛出异常：
+         * Error:(33, 36) java: 对number的引用不明确
+                            com.jvm.FieldResolution.Parent 中的变量 number
+                                和 com.jvm.FieldResolution.Interdace2 中的变量 number 都匹配
+         */
+        public static int number = 4;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(Children.number);
+    }
+}
+```
+
+- 方法解析
+
+首先解析出方法表的 `class_index` 项中索引的方法所属的类或接口的符号引用，如果解析成功，那么依然用 $C$ 表示这个类，接下来虚拟机将会按照如下步骤进行后续的方法搜索：
+
+> 1）由于 `Class` 文件格式中类的方法和接口的方法符号引用的常量类型定义是分开的，如果在类的方法表中发现 `class_index` 中索引的 $C$ 是个接口的话，那就直接抛出 `java.lang.IncompatibleClassChangeError` 异常；
+>
+> 2）如果通过了步骤 1），在类 $C$ 中查找是否有简单名称和描述符都与目标相匹配的方法，如果有则返回这个方法的直接引用，查找结束；
+>
+> 3）否则，在类 $C$ 的父类中递归查找是否有简单名称和描述符都与目标相匹配的方法，如果有则返回这个方法的直接引用，查找结束；
+>
+> 4）否则，在类 $C$ 实现的接口列表及它们的父接口之中递归查找是否有简单名称和描述符都与目标相匹配的方法，如果存在匹配的方法，说明类 $C$ 是一个抽象类，这时候查找结束，抛出 `java.lang.AbstractMethodError` 异常；
+>
+> 5）否则，宣告方法查找失败，抛出 `java.lang.NoSuchMethodError`；
+>
+> 6）如果查找过程成功返回了直接引用，将会对这个方法进行权限验证，如果发现不具备对此方法的访问权限，将抛出 `java.lang.IllegalAccessError` 异常。
+
+- 接口方法解析
+
+首先解析出接口方法表的 `class_index`  项中索引的方法所属的类或接口的符号引用，如果解析成功，依然用 $C$ 表示这个接口，接下来虚拟机将会按照如下步骤进行后续的接口方法搜索：
+
+> 1）与类的方法解析相反，如果在接口方法表中发现 `class_index` 中的索引 $C$ 是个类而不是接口，那 么就直接抛出 `java.lang.IncompatibleClassChangeError` 异常；
+>
+> 2）否则，在接口 $C$ 中查找是否有简单名称和描述符都与目标相匹配的方法，如果有则返回这个方法的直接引用，查找结束；
+>
+> 3）否则，在接口 $C$ 的父接口中递归查找，直到 `java.lang.Object` 类（接口方法的查找范围也会包括 `Object` 类中的方法）为止，看是否有简单名称和描述符都与目标相匹配的方法，如果有则返回这个方法的直接引用，查找结束；
+>
+> 4）对于步骤 3），由于 `Java` 的接口允许多重继承，如果 $C$ 的不同父接口中存有多个简单名称和描述符都与目标相匹配的方法，那将会从这多个方法中返回其中一个并结束查找，《`Java` 虚拟机规范》中没有进一步规则约束应该返回哪一个接口方法；
+>
+> 5）否则，宣告方法查找失败，抛出 `java.lang.NoSuchMethodError` 异常；
+>
+> 6）在 `JDK 9` 之前，`Java` 接口中的所有方法都默认是 `public` 的，也没有模块化的访问约束，所以不存在访问权限的问题，接口方法的符号解析就不可能抛出 `java.lang.IllegalAccessError` 异常；在 `JDK 9` 中增加了接口的静态私有方法，也有了模块化的访问约束，所以从 `JDK 9` 起，接口方法的访问也完全有可能因访问权限控制而出现 `java.lang.IllegalAccessError` 异常。
+
+5）初始化
+
+类的**初始化**阶段是类加载过程的最后一个步骤，`Java` 虚拟机才真正开始执行类中编写的 `Java` 程序代码，将主导权移交给应用程序。
+
+进行准备阶段时，变量已经赋过一次系统要求的初始零值，而在初始化阶段，则会根据程序员通过程序编码制定的主观计划去初始化类变量和其他资源。**初始化阶段就是执行类构造器 `<clinit>()` 方法的过程。**
+
+`<clinit>()` 方法是由编译器自动收集类中的所有类变量的赋值动作和静态语句块（`static{}` 块）中的语句合并产生的，编译器收集的顺序是由语句在源文件中出现的顺序决定的，静态语句块中只能访问到定义在静态语句块之前的变量，定义在它之后的变量，在前面的静态语句块可以赋值，但是不能访问。
+
+`Java` 虚拟机必须保证一个类的 `<clinit>()` 方法在多线程环境中被正确地加锁同步，如果多个线程同时去初始化一个类，那么只会有其中一个线程去执行这个类的 `<clinit>()` 方法，其他线程都需要阻塞等待，直到活动线程执行完毕`<clinit>()` 方法。如果在一个类的 `<clinit>()` 方法中有耗时很长的操作，那就可能造成多个进程阻塞，在实际应用中这种阻塞往往是很隐蔽的。
+
+代码清单7-5  死循环(初始化)
+
+```java
+package com.jvm;
+
+/**
+ * 死循环(初始化)
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/18 00:26
+ */
+public class DeadLoop {
+
+    static {
+        if (true) {
+            System.out.println(Thread.currentThread() + " init DeadLoop Class.");
+            while (true) {
+
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        Runnable script = new Runnable() {
+            @Override
+            public void run() {
+                System.out.println(Thread.currentThread() + " start.");
+                new DeadLoop();
+                System.out.println(Thread.currentThread() + " end.");
+            }
+        };
+
+        Thread t1 = new Thread(script);
+        Thread t2 = new Thread(script);
+        t1.start();
+        t2.start();
+    }
+}
+```
+
+#### 3，类加载器
+
+`Java` 虚拟机设计团队有意把类加载阶段中的“通过一个类的全限定名来获取描述该类的二进制字节流”这个动作放到 `Java` 虚拟机外部去实现，以便让应用程序自己决定如何去获取所需的类。实现这个动作的代码被称为“**类加载器**”（`Class Loader`）。
+
+对于任意一个类，都必须由加载它的类加载器和这个类本身一起共同确立其在 `Java` 虚拟机中的唯一性，每一个类加载器，都拥有一个独立的类名称空间。
+
+代码清单7-6　不同的类加载器对 `instanceof` 关键字运算的结果的影响
+
+```java
+package com.jvm;
+
+import java.io.IOException;
+import java.io.InputStream;
+
+/**
+ * 类加载器与instanceof关键字
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/8/18 00:58
+ */
+public class ClassLoaderTest {
+
+    public static void main(String[] args) throws Exception {
+
+        ClassLoader loader = new ClassLoader() {
+            @Override
+            public Class<?> loadClass(String name) throws ClassNotFoundException {
+                try {
+                    String fileName = name.substring(name.lastIndexOf(".") + 1) + ".class";
+                    InputStream is = getClass().getResourceAsStream(fileName);
+                    if (is == null) {
+                        return super.loadClass(name);
+                    }
+
+                    byte[] bytes = new byte[is.available()];
+                    is.read(bytes);
+                    return defineClass(name, bytes, 0, bytes.length);
+                } catch (IOException e) {
+                    throw new ClassNotFoundException(name);
+                }
+            }
+        };
+
+        Object obj = loader.loadClass("com.jvm.ClassLoaderTest").newInstance();
+
+        System.out.println(obj.getClass());
+        System.out.println(obj instanceof com.jvm.ClassLoaderTest);
+    }
+}
+```
+
+运行结果：
+
+```bash
+class com.jvm.ClassLoaderTest
+false
+```
+
+在Java虚拟机的角度来看，只存在两种不同的类加载器：一种是**启动类加载器**（`Bootstrap ClassLoader`），这个类加载器使用 `C++` 语言实现，是虚拟机自身的一部分；另一种就是**其他所有的类加载器**，由 `Java` 语言实现，独立存在于虚拟机外部，并且全都继承自抽象类 `java.lang.ClassLoader`。
+
+自 `JDK 1.2` 以来，`Java` 一直保持着 **三层类加载器**、**双亲委派** 的类加载架构。
+
+- 三层类加载器
+
+> **启动类加载器**（`Bootstrap Class Loader`）：负责加载存放在 `<JAVA_HOME>\lib` 目录，或者被 `-Xbootclasspath` 参数所指定的路径中存放的，而且是 `Java` 虚拟机能够识别的（按照文件名识别，如 `rt.jar`、`tools.jar`，名字不符合的类库即使放在 `lib` 目录中也不会被加载）类库加载到虚拟机的内存中。启动类加载器无法被 `Java` 程序直接引用，用户在编写自定义类加载器时，如果需要把加载请求委派给引导类加载器去处理，那直接使用 `null` 代替即可；
+>
+> **扩展类加载器**（`Extension Class Loader`）：在类 `sun.misc.Launcher$ExtClassLoader` 中以 `Java` 代码的形式实现的。负责加载 `<JAVA_HOME>\lib\ext` 目录中，或者被 `java.ext.dirs` 系统变量所指定的路径中所有的类库。`JDK` 的开发团队允许用户将具有通用性的类库放置在 `ext` 目录里以扩展 `Java SE` 的功能，在 `JDK 9` 后，这种扩展机制被**模块化**带来的天然的扩展能力所取代；
+>
+> **应用程序类加载器**（`Application Class Loader`）：由 `sun.misc.Launcher$AppClassLoader` 来实现。由于应用程序类加载器是 `ClassLoader` 类中的 `getSystemClassLoader()` 方法的返回值，所以有些场合中也称它为“**系统类加载器**”。负责加载用户类路径 （`ClassPath`）上所有的类库，开发者可以直接在代码中使用这个类加载器。如果应用程序中没有自定义过类加载器，一般情况下这个就是程序中默认的类加载器。
+
+`JDK 9` 之前的 `Java` 应用都是由这三种类加载器互相配合来完成加载的。
+
+- 双亲委派模型
+
+![双亲委派模型](images/jvm_20200818234558.png)
+
+各种类加载器之间的层次关系被称为类加载器的“**双亲委派模型**（`Parents Delegation Model`）”，在 `JDK 1.2` 时期被引入。双亲委派模型要求除了顶层的启动类加载器外，其余的类加载器都应有自己的父类加载器。类加载器之间的父子关系一般不是以 **继承**（`Inheritance`）的关系来实现的，而是通常使用 **组合**（`Composition`）关系来复用父加载器的代码。
+
+**双亲委派模型工作过程** ：如果一个类加载器收到了类加载的请求，它首先不会自己去尝试加载这个类，而是把这个请求委派给父类加载器去完成，每一个层次的类加载器都是如此，因此所有的加载请求最终都应该传送到最顶层的启动类加载器中，只有当父加载器反馈自己无法完成这个加载请求（它的搜索范围中没有找到所需的类）时，子加载器才会尝试自己去完成加载。
+
+代码清单7-7　双亲委派模型的实现（`jdk1.8`）
+
+```java
+protected Class<?> loadClass(String name, boolean resolve)
+  throws ClassNotFoundException
+{
+  synchronized (getClassLoadingLock(name)) {
+    // First, check if the class has already been loaded
+    Class<?> c = findLoadedClass(name);
+    if (c == null) {
+      long t0 = System.nanoTime();
+      try {
+        if (parent != null) {
+          c = parent.loadClass(name, false);
+        } else {
+          c = findBootstrapClassOrNull(name);
+        }
+      } catch (ClassNotFoundException e) {
+        // ClassNotFoundException thrown if class not found
+        // from the non-null parent class loader
+      }
+
+      if (c == null) {
+        // If still not found, then invoke findClass in order
+        // to find the class.
+        long t1 = System.nanoTime();
+        c = findClass(name);
+
+        // this is the defining class loader; record the stats
+        sun.misc.PerfCounter.getParentDelegationTime().addTime(t1 - t0);
+        sun.misc.PerfCounter.getFindClassTime().addElapsedTimeFrom(t1);
+        sun.misc.PerfCounter.getFindClasses().increment();
+      }
+    }
+    if (resolve) {
+      resolveClass(c);
+    }
+    return c;
+  }
+}
+```
+
+- 破坏双亲委派模型
+
+双亲委派模型的 **第一次“被破坏”** 发生在双亲委派模型出现之前——即 `JDK 1.2` 面世以前的“远古”时代。面对已经存在的用户自定义类加载器的代码，`Java` 设计者引入双亲委派模型时不得不做出一些妥协，为了兼容这些已有代码，无法再以技术手段避免 `loadClass()` 被子类覆盖的可能性，只能在 `JDK 1.2` 之后的 `java.lang.ClassLoader` 中添加一个新的 `protected` 方法 `findClass()` ，并引导用户编写的类加载逻辑时尽可能去重写这个方法，而不是在 `loadClass()` 中编写代码。
+
+**第二次“被破坏”** 是由这个模型自身的缺陷导致的，双亲委派很好地解决了各个类加载器协作时基础类型的一致性问题（越基础的类由越上层的加载器进行加载），但程序设计往往没有绝对不变的完美规则，如果有基础类型又要调用回用户的代码，那该怎么办呢？
+
+一个典型的例子是 `JNDI` 服务，`JNDI` 现已是 `Java` 的标准服务， 它的代码由 **启动类加载器** 来完成加载（在 `JDK 1.3` 时加入到 `rt.jar` ），但 `JNDI` 的目的是对资源进行查找和集中管理，需要调用由其他厂商实现并部署在应用程序的 `ClassPath` 下的 `JNDI` 服务提供者接口（`Service Provider Interface，SPI`）的代码，然而，启动类加载器是绝不可能认识、加载这些代码，那该怎么办？
+
+为了解决这个困境，`Java` 的设计团队引入了一个不太优雅的设计：**线程上下文类加载器** （`Thread Context ClassLoader`）。这个类加载器可以通过 `java.lang.Thread` 类的 `setContext-ClassLoader()` 方法进行设置，如果创建线程时还未设置，它将会从父线程中继承一个，如果在应用程序的全局范围内都没有设置过的话，那这个类加载器默认就是应用程序类加载器。`JNDI` 服务使用这个线程上下文类加载器去加载所需的 `SPI` 服务代码，这是一种父类加载器去请求子类加载器完成类加载的行为，实际上是打通了双亲委派模型的层次结构来逆向使用类加载器，已经违背了双亲委派模型的一般性原则。`Java` 中涉及 `SPI` 的加载基本上都采用这种方式来完成，例如 `JNDI`、 `JDBC`、`JCE`、`JAXB` 和`JBI` 等。在 `JDK 6` 时，`JDK` 提供了 `java.util.ServiceLoader` 类，以 `META-INF/services` 中的配置信息，辅以责任链模式，这才算是给 SPI` 的加载提供了一种相对合理的解决方案。
+
+**第三次“被破坏”** 是由于用户对程序动态性的追求而导致的，这里所说的“动态性”指的是 **代码热替换**（`Hot Swap`）、**模块热部署**（`Hot Deployment`）等。
+
+**`OSGi`** 实现模块化热部署的**关键**是它自定义的类加载器机制的实现，每一个程序模块（`OSGi` 中称为 `Bundle`）都有一个自己的类加载器，当需要更换一个 `Bundle` 时，就把 `Bundle` 连同类加载器一起换掉以实现代码的热替换。在 `OSGi` 环境下，类加载器不再双亲委派模型推荐的树状结构，而是进一步发展为更加复杂的网状结构，当收到类加载请求时， `OSGi` 将按照以下顺序进行类搜索：
+
+> 1）将以 `java.*` 开头的类，委派给父类加载器加载；
+>
+> 2）否则，将委派列表名单内的类，委派给父类加载器加载；
+>
+> 3）否则，将 `Import` 列表中的类，委派给 `Export` 这个类的 `Bundle` 的类加载器加载；
+>
+> 4）否则，查找当前 `Bundle` 的 `ClassPath`，使用自己的类加载器加载；
+>
+> 5）否则，查找类是否在自己的 `Fragment Bundle` 中，如果在，则委派给 `Fragment Bundle` 的类加载器加载；
+>
+> 6）否则，查找 `Dynamic Import` 列表的 `Bundle`，委派给对应 `Bundle` 的类加载器加载；
+>
+> 7）否则，类查找失败。
+
+#### 4，Java模块化系统
+
+在 `JDK 9` 中引入的 `Java` **模块化系统**（`Java Platform Module System，JPMS`）是对 `Java` 技术的一次重要升级，为了能够实现模块化的 **关键目标**——可配置的封装隔离机制，`Java` 虚拟机对类加载架构也做出了相应的变动调整，才使模块化系统得以顺利地运作。`JDK 9` 的模块除了代码外，还包含以下内容：
+
+> 依赖其他模块的列表；
+>
+> 导出的包列表，即其他模块可以使用的列表；
+>
+> 开放的包列表，即其他模块可反射访问模块的列表；
+>
+> 使用的服务列表；
+>
+> 提供服务的实现列表。
+
+**可配置的封装隔离机制** 首先解决了 `JDK 9` 之前基于类路径（`ClassPath`）来查找依赖的可靠性问题；还解决了原来类路径上跨 `JAR` 文件的 `public` 类型的可访问性问题。
+
+**模块路径**（`ModulePath`）即某个类库到底是模块还是传统的 `JAR` 包，只取决于它存放在哪种路径上。只要是放在类路径上的 `JAR` 文件，无论其中是否包 含模块化信息（是否包含了 `module-info.class` 文件），它都会被当作传统的 `JAR` 包来对待；相应地，只要放在模块路径上的 `JAR` 文件，即使没有使用 `JMOD` 后缀，甚至说其中并不包含 `module-info.class` 文 件，它也仍然会被当作一个模块来对待。
+
+模块化系统将按照以下规则来保证使用传统类路径依赖的 `Java` 程序可以不经修改地直接运行在 `JDK 9` 及以后的 `Java` 版本上：
+
+> **`JAR` 文件在类路径的访问规则**：所有类路径下的 `JAR` 文件及其他资源文件，都被视为自动打包在一个匿名模块（`Unnamed Module`）里，这个匿名模块几乎是没有任何隔离的，它可以看到和使用类路径上所有的包、`JDK` 系统模块中所有的导出包，以及模块路径上所有模块中导出的包；
+>
+> **模块在模块路径的访问规则**：模块路径下的具名模块（`Named Module`）只能访问到它依赖定义中列明依赖的模块和包，匿名模块里所有的内容对具名模块来说都是不可见的，即具名模块看不见传统 `JAR` 包的内容；
+>
+> **`JAR` 文件在模块路径的访问规则**：如果把一个传统的、不包含模块定义的 `JAR` 文件放置到模块路径中，它就会变成一个自动模块（`Automatic Module`）。尽管不包含 `module-info.class`，但自动模块将默认依赖于整个模块路径中的所有模块，因此可以访问到所有模块导出的包，自动模块也默认导出自己所有的包。
+
+```bash
+☁  images [interview] ⚡  java --list-modules
+java.base@11.0.6
+java.compiler@11.0.6
+java.datatransfer@11.0.6
+java.desktop@11.0.6
+java.instrument@11.0.6
+java.logging@11.0.6
+java.management@11.0.6
+java.management.rmi@11.0.6
+java.naming@11.0.6
+................................
+```
+
+模块化下的类加载器有如下特点：
+
+> 1）扩展类加载器（`Extension Class Loader`）被 **平台类加载器**（`Platform Class Loader`）取代；
+>
+> 2）平台类加载器和应用程序类加载器都不再派生自 `java.net.URLClassLoader`，如果有程序直接依赖了这种继承关系，或者依赖了 `URLClassLoader` 类的特定方法，那代码很可能会在 `JDK 9` 及更高版本的 `JDK` 中崩溃。现在启动类加载器、平台类加载器、应用程序类加载器全都继承于 `jdk.internal.loader.BuiltinClassLoader`，在 `BuiltinClassLoader` 中实现了新的模块化架构下类如何从模块中加载的逻辑，以及模块中资源可访问性的处理；
+>
+> 3）`JDK 9` 中虽然仍然维持着三层类加载器和双亲委派的架构，但类加载的委派关系也发生了变动。当平台及应用程序类加载器收到类加载请求，在委派给父加载器加载前，要先判断该类是否能够归属到某一个系统模块中，如果可以找到这样的归属关系，就要优先委派给负责那个模块的加载器完成加载，也许这可以算是对双亲委派的**第四次破坏**。
+
+![JDK9后的类加载器委派关系](images/jvm_20200819011543.png)
+
+启动类加载器负责加载的模块：
+
+```bash
+java.base 
+java.datatransfer 
+java.desktop 
+java.instrument 
+java.logging 
+java.management 
+java.management.rmi 
+java.naming 
+java.prefs
+java.rmi
+java.security.sasl 
+java.xml 
+jdk.httpserver 
+jdk.internal.vm.ci 
+jdk.management 
+jdk.management.agent
+jdk.naming.rmi 
+jdk.net 
+jdk.sctp 
+jdk.unsupported
+```
+
+平台类加载器负责加载的模块：
+
+```bash
+java.activation* 
+java.compiler* 
+java.corba* 
+java.scripting
+java.se 
+java.se.ee 
+java.security.jgss 
+java.smartcardio 
+java.sql 
+java.sql.rowset 
+java.transaction* 
+java.xml.bind* 
+java.xml.crypto 
+java.xml.ws* 
+java.xml.ws.annotation*
+jdk.accessibility
+jdk.charsets
+jdk.crypto.cryptoki 
+jdk.crypto.ec 
+jdk.dynalink 
+jdk.incubator.httpclient 
+jdk.internal.vm.compiler*
+jdk.jsobject
+jdk.localedata 
+jdk.naming.dns
+jdk.scripting.nashorn
+jdk.security.auth 
+jdk.security.jgss 
+jdk.xml.dom 
+jdk.zipfs
+```
+
+应用程序类加载器负责加载的模块：
+
+```bash
+jdk.aot
+jdk.attach
+jdk.compiler 
+jdk.editpad 
+jdk.hotspot.agent
+jdk.internal.ed 
+jdk.internal.jvmstat 
+jdk.internal.le 
+jdk.internal.opt
+jdk.jartool 
+jdk.javadoc 
+jdk.jcmd 
+jdk.jconsole
+jdk.jdeps 
+jdk.jdi 
+jdk.jdwp.agent 
+jdk.jlink 
+jdk.jshell
+jdk.jstatd 
+jdk.pack
+jdk.policytool
+jdk.rmic 
+jdk.scripting.nashorn.shell 
+jdk.xml.bind* 
+jdk.xml.ws*
+```
+
