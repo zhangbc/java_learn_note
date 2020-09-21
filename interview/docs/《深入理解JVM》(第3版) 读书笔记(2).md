@@ -1146,9 +1146,953 @@ public class JavaClassExecutor {
 
 ## 十，前端编译与优化
 
+#### 1，编译器分类
 
+> **前端编译器**：`JDK` 的 `Javac`、`Eclipse JDT` 中的增量式编译器（`ECJ`）；
+>
+> **即时编译器**：`HotSpot` 虚拟机的 `C1`、`C2` 编译器，`Graal` 编译器；
+>
+> **提前编译器**：`JDK` 的 `Jaotc`、`GNU Compiler for the Java`（`GCJ`）、`Excelsior JET`。
+
+#### 2，`Javac` 编译器
+
+在 `JDK 6` 以前，`Javac` 并不属于标准 `Java SE API` 的一部分，它实现代码单独存放在 `tools.jar` 中，要在程序中使用的话就必须把这个库放到类路径上。在 `JDK 6` 发布时通过了 `JSR 199` 编译器 `API` 的提案，使得 `Javac` 编译器的实现代码晋升成为标准 `Java` 类库之一，它的源码就改为放在 `JDK_SRC_HOME/langtools/src/share/classes/com/sun/tools/javac` 中。到了 `JDK 9` 时，整个 `JDK` 所有的 `Java` 类库都采用模块化进行重构划分，`Javac` 编译器就被挪到了 `jdk.compiler` 模块（路径为：  `JDK_SRC_HOME/src/jdk.compiler/share/classes/com/sun/tools/javac`）里面。
+
+创建 `JAVA JDK` 工程：
+
+```bash
+☁  openjdk-jdk8u [master] cp -rf langtools/src/share/classes/com ../java_projects/jdk-src/src/
+```
+
+执行：
+
+```bash
+/Library/Java/JavaVirtualMachines/jdk1.8.0_131.jdk/Contents/Home/bin/java -Dfile.encoding=UTF-8 -classpath...jects/java_pro/java_projects/jdk-src/out/production/jdk-src com.sun.tools.javac.Main
+用法: javac <options> <source files>
+其中, 可能的选项包括:
+  -g                         生成所有调试信息
+  -g:none                    不生成任何调试信息
+  -g:{lines,vars,source}     只生成某些调试信息
+  -nowarn                    不生成任何警告
+  -verbose                   输出有关编译器正在执行的操作的消息
+  -deprecation               输出使用已过时的 API 的源位置
+  -classpath <路径>            指定查找用户类文件和注释处理程序的位置
+  -cp <路径>                   指定查找用户类文件和注释处理程序的位置
+  -sourcepath <路径>           指定查找输入源文件的位置
+  -bootclasspath <路径>        覆盖引导类文件的位置
+  -extdirs <目录>              覆盖所安装扩展的位置
+  -endorseddirs <目录>         覆盖签名的标准路径的位置
+  -proc:{none,only}          控制是否执行注释处理和/或编译。
+  -processor <class1>[,<class2>,<class3>...] 要运行的注释处理程序的名称; 绕过默认的搜索进程
+  -processorpath <路径>        指定查找注释处理程序的位置
+  -parameters                生成元数据以用于方法参数的反射
+  -d <目录>                    指定放置生成的类文件的位置
+  -s <目录>                    指定放置生成的源文件的位置
+  -h <目录>                    指定放置生成的本机标头文件的位置
+  -implicit:{none,class}     指定是否为隐式引用文件生成类文件
+  -encoding <编码>             指定源文件使用的字符编码
+  -source <发行版>              提供与指定发行版的源兼容性
+  -target <发行版>              生成特定 VM 版本的类文件
+  -profile <配置文件>            请确保使用的 API 在指定的配置文件中可用
+  -version                   版本信息
+  -help                      输出标准选项的提要
+  -A关键字[=值]                  传递给注释处理程序的选项
+  -X                         输出非标准选项的提要
+  -J<标记>                     直接将 <标记> 传递给运行时系统
+  -Werror                    出现警告时终止编译
+  @<文件名>                     从文件读取选项和文件名
+
+
+Process finished with exit code 2
+```
+
+从 `Javac` 代码的总体结构来看，编译过程大致可以分为1个准备过程和3个处理过程，它们分别如下：
+
+> 1）准备过程：初始化插入式注解处理器；
+>
+> 2）解析与填充符号表过程，包括：
+>
+> > 词法、语法分析：将源代码的字符流转变为标记集合，构造出抽象语法树；
+> >
+> > > **词法分析** 是将源代码的字符流转变为标记（`Token`，如关键字、变量名、字面量、运算符等）集合的过程，单个字符是程序编写时的最小元素，但标记才是编译时的最小元素；其过程由  `com.sun.tools.javac.parser.Scanner` 类来实现；
+> > >
+> > > **语法分析** 是根据标记序列构造抽象语法树的过程，**抽象语法树**（`Abstract Syntax Tree`，`AST`）是一种用来描述程序代码语法结构的树形表示方式，抽象语法树的每一个节点都代表着程序代码中的一个语法结构（`Syntax Construct`），例如包、类型、修饰符、运算符、接口、返回值甚至连代码注释等都可以是一种特定的语法结构；其过程由  `com.sun.tools.javac.parser.Parser` 类实现，这个阶段产出的抽象语法树是以`com.sun.tools.javac.tree.JCTree` 类表示的。
+> >
+> > 填充符号表：产生符号地址和符号信息。
+> >
+> > > **符号表**（`Symbol Table`）是由一组符号地址和符号信息构成的数据结构，可以把它类比想象成哈希表中键值对的存储形式（实际上符号表不一定是哈希表实现，可以是有序符号表、树状符号表、栈结构符号表等各种形式）。符号表中所登记的信息在编译的不同阶段都要被用到；其过程由 `com.sun.tools.javac.comp.Enter` 类实现，该过程的产出物是一个待处理列表，其中包含了每一个编译单元的抽象语法树的顶级节点，以及 `package-info.java`（如果存在的话）的顶级节点。
+>
+> 3）插入式注解处理器的注解处理过程：插入式注解处理器的执行阶段，影响 `Javac` 的编译行为；
+>
+> > `JDK 5` 之后，`Java` 语言提供了对 **注解**（`Annotations`）的支持，只会在程序运行期间发挥作用。但在 `JDK 6` 中又提出并通过了 `JSR-269` 提案，该提案设计了一组被称为“插入式注解处理器”的0标准 `API`，可以提前至编译期对代码中的特定注解进行处理， 从而影响到前端编译器的工作过程。把插入式注解处理器看作是一组编译器的插件，当这些插件工作时，允许读取、修改、添加抽象语法树中的任意元素。如果这些插件在处理注解期间对语法树进行过修改，编译器将回到解析及填充符号表的过程重新处理，直到所有插入式注解处理器都没有再对语法树进行修改为止，每一次循环过程称为一个 **轮次**（`Round`）。
+> >
+> > 在 `Javac` 源码中，插入式注解处理器的初始化过程是在 `initPorcessAnnotations()` 方法中完成的，而它的执行过程则是在 `processAnnotations()` 方法中完成。这个方法会判断是否还有新的注解处理器需要执行，如果有的话，通过 `com.sun.tools.javac.processing.JavacProcessing-Environment` 类的 `doProcessing()` 方法来生成一个新的 `JavaCompiler` 对象，对编译的后续步骤进行处理。
+>
+> 4）语义分析与字节码生成过程，包括： 
+>
+> > 标注检查：对语法的静态信息进行检查；
+> >
+> > > `Javac` 在编译过程中，**语义分析过程** 可分为 **标注检查** 和 **数据及控制流分析** 两个步骤，分别由 `attribute()` 和 `flow()` 方法完成。
+> > >
+> > > 标注检查步骤要检查的内容包括诸如变量使用前是否已被声明、变量与赋值之间的数据类型是否能够匹配等等。在标注检查中，还会顺便进行 一个称为 **常量折叠**（`Constant Folding`）的代码优化，这是 `Javac` 编译器会对源代码做的极少量优化措施之一。
+> > >
+> > > 标注检查步骤在 `Javac` 源码中的实现类是 `com.sun.tools.javac.comp.Attr` 类和  `com.sun.tools.javac.comp.Check` 类。
+> >
+> > 数据流及控制流分析：对程序动态运行过程进行检查；
+> >
+> > > 数据流分析和控制流分析是对程序上下文逻辑更进一步的验证，它可以检查出诸如程序局部变量在使用前是否有赋值、方法的每条路径是否都有返回值、是否所有的受查异常都被正确处理了等问题。
+> > >
+> > > 在 `Javac` 的源码中， 数据及控制流分析的入口是 `flow()` 方法，具体操作由  `com.sun.tools.javac.comp.Flow` 类来完成。
+> >
+> > 解语法糖：将简化代码编写的语法糖还原为原有的形式；
+> >
+> > > **语法糖**（`Syntactic Sugar`），也称 **糖衣语法**，是由英国计算机科学家 `Peter J.Landin` 发明的一种编程术语，指的是在计算机语言中添加的某种语法，这种语法对语言的编译结果和功能并没有实际影响， 但是却能更方便程序员使用该语言，通常来说使用语法糖能够减少代码量、增加程序的可读性，从而减少程序代码出错的机会。
+> > >
+> > > 在 `Javac` 的源码中，解语法糖的过程由 `desugar()` 方法触发，在 `com.sun.tools.javac.comp.TransTypes` 类和 `com.sun.tools.javac.comp.Lower` 类中完成。
+> >
+> > 字节码生成：将前面各个步骤所生成的信息转化成字节码。
+> >
+> > > 在 `Javac` 源码里面由 `com.sun.tools.javac.jvm.Gen` 类来完成。字节码生成阶段不仅仅是把前面各个步骤所生成的信息（语法树、符号表）转化成字节码指令写到磁盘中，编译器还进行了少量的代码添加和转换工作。
+> > >
+> > > 完成了对语法树的遍历和调整之后，就会把填充了所有所需信息的符号表交到  `com.sun.tools.javac.jvm.ClassWriter` 类手上，由这个类的 `writeClass()` 方法输出字节码，生成最终的 `Class` 文件，到此，整个编译过程宣告结束。
+
+![Javac的编译过程](images/jvm_20200907221719.png)
+
+`Javac` 编译动作的入口是 `com.sun.tools.javac.main.JavaCompiler` 类。
+
+![Javac编译过程的主体代码](images/jvm_20200907230651.png)
+
+#### 3，`Java` 语法糖
+
+- 泛型
+
+**泛型的本质** 是参数化类型（`Parameterized Type`）或者参数化多态（`Parametric Polymorphism`）的应用，即可以将操作的数据类型指定为方法签名中的一种特殊参数，这种参数类型能够用在类、接口和方法的创建中，分别构成泛型类、泛型接口和泛型方法。`Java` 于2004年 `JDK5.0` 引入。
+
+`Java` 选择的泛型实现方式叫作“**类型擦除式泛型**”（`Type Erasure Generics`），而 `C#` 选择的泛型实现方式是“**具现化式泛型**”（`Reified Generics`）。
+
+擦除式泛型的实现几乎只需要在 `Javac` 编译器上做出改进即可，不需要改动字节码、不需要改动 `Java` 虚拟机，也保证了以前没有使用泛型的库可以 直接运行在 `Java 5.0` 之上。
+
+以 `ArrayList` 为例来介绍 `Java` 泛型的 **类型擦除** 具体是如何实现的。由于 `Java` 选择了直接把已有的类型泛型化。要让所有需要泛型化的已有类型，譬如 `ArrayList`，原地泛型化后变成 了 `ArrayList<T>`，而且保证以前直接用 `ArrayList` 的代码在泛型新版本里必须还能继续用这同一个容器，这就必须让所有泛型化的实例类型，譬如 `ArrayList<Integer>`、`ArrayList<String>` 这些全部自动成为 `ArrayList` 的子类型才能可以，否则类型转换就是不安全的。由此就引出了“**裸类型**”（`Raw Type`）的概念，裸类型应被视为所有该类型泛型化实例的共同父类型（`Super Type`）。
+
+代码清单 10-1　裸类型赋值
+
+```java
+package com.jvm;
+
+import j0ava.util.ArrayList;
+
+/**
+ * 泛型示例
+ * 1. 裸类型赋值
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/17 23:44
+ */
+public class GenericsDemo {
+
+    public static void main(String[] args) {
+
+        ArrayList<Integer> iList = new ArrayList<>(16);
+        ArrayList<String> sList = new ArrayList<>(16);
+        // 裸类型
+        ArrayList list;
+        list = iList;
+        list = sList;
+    }
+}
+```
+
+如何实现裸类型？
+
+> 1）是在运行期由 `Java` 虚拟机来自动地、真实地构造出 `ArrayList<Integer>` 这样的类型，并且自动实现从 `ArrayList<Integer>` 派生自 `ArrayList` 的继承关系来满足裸类型的定义；
+>
+> 2）是直接在编译时把 `ArrayList<Integer>` 还原回 `ArrayList`，只在元素访问、修改时自动插入一些强制类型转换和检查指令。
+
+
+
+擦除法所谓的 **擦除**，仅仅是对方法的 `Code` 属性中的字节码进行擦除，实际上元数据中还是保留了泛型信息，这也是在编码时能通过反射手段取得参数化类型的根本依据。
+
+- 自动装箱、拆箱与遍历循环
+
+代码清单 10-2　自动装箱、拆箱与遍历循环
+
+```java
+package com.jvm;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * 泛型&装箱示例
+ * 1. 裸类型赋值
+ * 2. 自动装箱、拆箱与遍历循环
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/17 23:44
+ */
+public class GenericsDemo {
+
+    public static void main(String[] args) {
+
+        List<Integer> ls = Arrays.asList(1, 2, 3, 4);
+        int sum =0;
+        for (int i: ls) {
+            sum += i;
+        }
+
+        System.out.println(sum);
+    }
+}
+```
+
+代码清单 10-3　自动装箱的陷阱
+
+```java
+package com.jvm;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * 泛型&装箱示例
+ * 1. 裸类型赋值
+ * 2. 自动装箱、拆箱与遍历循环
+ * 3. 自动装箱的陷阱
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/17 23:44
+ */
+public class GenericsDemo {
+
+    public static void main(String[] args) {
+       
+        Integer a = 1, b = 2, c = 3, d = 3;
+        Integer e = 321, f = 321;
+        Long g = 3L;
+        // true
+        System.out.println(c == d);
+        // false
+        System.out.println(e == f);
+        // true
+        System.out.println(c == (a + b));
+        // true
+        System.out.println(c.equals(a + b));
+        // true
+        System.out.println(g == (a + b));
+        // false
+        System.out.println(g.equals(a + b));
+    }
+}
+```
+
+- 条件编译
+
+`Java` 可以进行条件编译，方法是使用条件为常量的 `if` 语句。
+
+`Java` 语言中条件编译的实现，也是 `Java` 语言的一颗语法糖，根据布尔常量值的真假，编译器将会把分支中不成立的代码块消除掉，这一工作将在编译器解除语法糖阶段（`com.sun.tools.javac.comp.Lower` 类中）完成。
+
+#### 4，实战：插入式注解处理器
+
+实现注解处理器的代码需要继承抽象类 `javax.annotation.processing.AbstractProcessor`，这个抽象类中只有一个子类必须实现的抽象方法：“`process()`”，它是 `Javac` 编译器在执行注解处理器代码时要调用的过程，可以从这个方法的第一个参数“`annotations`”中获取到此注解处理器所要处理的注解集合，从第二个参数“`roundEnv`”中访问到当前这个轮次（`Round`）中的抽象语法树节点，每个语法树节点在这里都表示为一个 `Element`。在 `javax.lang.model.ElementKind` 中定义了18类 `Element`，已经包括了 `Java` 代码中可能出现 的全部元素，如：“包（`PACKAGE`）、枚举（`ENUM`）、类（`CLASS`）、注解 （`ANNOTATION_TYPE`）、接口（`INTERFACE`）、枚举值（`ENUM_CONSTANT`）、字段 （`FIELD`）、参数（`PARAMETER`）、本地变量（`LOCAL_VARIABLE`）、异常（`EXCEPTION_PARAMETER`）、方法（`METHOD`）、构造函数（`CONSTRUCTOR`）、静态语句块 （`STATIC_INIT`，即 `static{}` 块）、实例语句块（`INSTANCE_INIT`，即 `{}` 块）、参数化类型 （`TYPE_PARAMETER`，泛型尖括号内的类型）、资源变量（`RESOURCE_VARIABLE`，`try-resource` 中定义的变量）、模块（`MODULE`）和未定义的其他语法树节点（`OTHER`）”。除了 `process()` 方法的 传入参数之外，还有一个很重要的实例变量“`processingEnv`”，它是 `AbstractProcessor` 中的一个 `protected` 变量，在注解处理器初始化的时候（`init()` 方法执行的时候）创建，继承了 `AbstractProcessor` 的注解处理器代码可以直接访问它。
+
+代码清单10-4 注解处理器 `NameCheckProcessor`
+
+```java
+package com.jvm;
+
+import javax.annotation.processing.*;
+import javax.lang.model.SourceVersion;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.TypeElement;
+import java.util.Set;
+
+/**
+ * 注解处理器 NameCheckProcessor
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/18 00:24
+ */
+@SupportedAnnotationTypes("*")
+@SupportedSourceVersion(SourceVersion.RELEASE_8)
+public class NameCheckProcessor extends AbstractProcessor {
+
+    private NameChecker nameChecker;
+
+    /**
+     * 初始化名称检查插件
+     * @param processingEnv 环境变量参数
+     */
+    @Override
+    public synchronized void init(ProcessingEnvironment processingEnv) {
+        super.init(processingEnv);
+        nameChecker = new NameChecker(processingEnv);
+    }
+
+    /**
+     * 对输入的语法树的各个节点进行名称检查
+     * @param annotations annotations 参数
+     * @param roundEnv 环境变量参数
+     * @return true or false
+     */
+    @Override
+    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+        if (!roundEnv.processingOver()) {
+            for (Element element: roundEnv.getRootElements()) {
+                nameChecker.checkNames(element);
+            }
+        }
+
+        return false;
+    }
+}
+```
+
+代码清单10-5 命名检查器 `NameChecker`
+
+```java
+package com.jvm;
+
+import javax.annotation.processing.Messager;
+import javax.annotation.processing.ProcessingEnvironment;
+import javax.lang.model.element.*;
+import javax.lang.model.util.ElementScanner8;
+import javax.tools.Diagnostic;
+import java.util.EnumSet;
+
+import static javax.lang.model.element.ElementKind.*;
+import static javax.lang.model.element.Modifier.*;
+import static javax.tools.Diagnostic.Kind.*;
+
+/**
+ * 命名检查器 NameChecker
+ * 程序名称规范的编译器插件：
+ *  如果程序命名不合规范，将会输出一个编译器的 WARNING 信息
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/18 00:29
+ */
+public class NameChecker {
+
+    private final Messager messager;
+
+    NameCheckScanner nameCheckScanner = new NameCheckScanner();
+
+    public NameChecker(ProcessingEnvironment processingEnv) {
+        this.messager = processingEnv.getMessager();
+    }
+
+    /**
+     * 对Java程序命名进行检查，根据《Java语言规范》第三版第6.8节的要求，Java程序命名应当符合下列格式：
+     * 类或接口：符合驼式命名法，首字母大写。
+     * 方法：符合驼式命名法，首字母小写。
+     * 字段：
+     *      类、实例变量: 符合驼式命名法，首字母小写。
+     *      常量: 要求全部大写。
+     * @param element 要检查的元素
+     */
+    public void checkNames(Element element) {
+        nameCheckScanner.scan(element);
+    }
+
+    /**
+     * 名称检查器实现类，继承了 JDK 8 中新提供的ElementScanner8
+     * 将会以Visitor模式访问抽象语法树中的元素
+     */
+    private class NameCheckScanner extends ElementScanner8<Void, Void> {
+        /**
+         * 检查Java类
+         */
+        @Override
+        public Void visitType(TypeElement e, Void p) {
+            scan(e.getTypeParameters(), p);
+            checkCamelCase(e, true);
+            super.visitType(e, p);
+            return null;
+        }
+
+        /**
+         * 检查方法命名是否合法
+         */
+        @Override
+        public Void visitExecutable(ExecutableElement e, Void p) {
+            if (e.getKind() == ElementKind.METHOD) {
+                Name name = e.getSimpleName();
+                if (name.contentEquals(e.getEnclosingElement().getSimpleName())) {
+                    messager.printMessage(Diagnostic.Kind.WARNING,
+                            "一个普通方法 “" + name + "” 不应当与类名重复，避免与构造函数产生混淆");
+                }
+
+                checkCamelCase(e, false);
+            }
+            super.visitExecutable(e, p);
+            return null;
+        }
+
+        /**
+         * 检查变量命名是否合法
+         */
+        @Override
+        public Void visitVariable(VariableElement e, Void p) {
+            if (e.getKind() == ENUM_CONSTANT || e.getConstantValue() != null || heuristicallyConstant(e)) {
+                checkAllCaps(e);
+            } else {
+                checkCamelCase(e, false);
+            }
+
+            return null;
+        }
+
+        /**
+         * 大写命名检查，要求第一个字母必须是大写的英文字母，其余部分可以是下划线或大写字母
+         */
+        private void checkAllCaps(Element e) {
+            String name = e.getSimpleName().toString();
+            boolean conventional = true;
+            int firstCodePoint = name.codePointAt(0);
+
+            if (!Character.isUpperCase(firstCodePoint)) {
+                conventional = false;
+            } else {
+                boolean previousUnderscore = false;
+                int cp = firstCodePoint;
+                for (int i = Character.charCount(cp); i < name.length(); i += Character.charCount(cp)) {
+                    cp = name.codePointAt(i);
+                    if (cp == (int) '_') {
+                        if (previousUnderscore) {
+                            conventional = false;
+                            break;
+                        }
+                        previousUnderscore = true;
+                    } else {
+                        previousUnderscore = false;
+                        if (!Character.isUpperCase(cp) && !Character.isDigit(cp)) {
+                            conventional = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!conventional) {
+                messager.printMessage(WARNING, "常量“" + name + "”应当全部以大写字母或下划线命名，并且以字母开头", e);
+            }
+        }
+
+        /**
+         * 判断一个变量是否是常量
+         */
+        private boolean heuristicallyConstant(VariableElement e) {
+            if (e.getEnclosingElement().getKind() == INTERFACE) {
+                return true;
+            } else {
+                return e.getKind() == FIELD && e.getModifiers().containsAll(EnumSet.of(PUBLIC, STATIC, FINAL));
+            }
+        }
+
+        /**
+         * 检查传入的Element是否符合驼式命名法，如果不符合，则输出警告信息
+         */
+        private void checkCamelCase(Element e, boolean initialCaps) {
+            String name = e.getSimpleName().toString();
+            boolean previousUpper = false;
+            boolean conventional = true;
+            int firstCodePoint = name.codePointAt(0);
+
+            if (Character.isUpperCase(firstCodePoint)) {
+                previousUpper = true;
+                if (!initialCaps) {
+                    messager.printMessage(WARNING, "名称 “" + name + "” 应当以小写字母开头", e);
+                    return;
+                }
+            } else if (Character.isLowerCase(firstCodePoint)) {
+                if (initialCaps) {
+                    messager.printMessage(WARNING, "名称 “" + name + "” 应当以大写字母开头", e);
+                    return;
+                }
+            } else {
+                conventional = false;
+            }
+
+            if (conventional) {
+                int cp = firstCodePoint;
+                for (int i = Character.charCount(cp); i < name.length(); i += Character.charCount(cp)) {
+                    cp = name.codePointAt(i);
+                    if (Character.isUpperCase(cp)) {
+                        if (previousUpper) {
+                            conventional = false;
+                            break;
+                        }
+                        previousUpper = true;
+                    } else {
+                        previousUpper = false;
+                    }
+                }
+            }
+
+            if (!conventional) {
+                messager.printMessage(WARNING, "名称 “" + name + "” 应当符合驼式命名法(Camel Case Names)", e);
+            }
+        }
+    }
+}
+```
+
+代码清单10-6 包含了多处不规范命名的代码样例
+
+```java
+package com.jvm;
+
+/**
+ * 包含了多处不规范命名的代码样例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/20 18:23
+ */
+public class BADLY_NAMED_CODE {
+    enum colors {
+        red, blue, green;
+    }
+
+    static final int _FORTY_TWO = 42;
+    public static int NOT_A_CONSTANT = _FORTY_TWO;
+
+    protected void BADLY_NAMED_CODE() {
+        return;
+    }
+
+    public void NOTcamelCASEmethodNAME() {
+        return;
+    }
+}
+```
+
+运行测试：
+
+```bash
+☁  java [interview] ⚡  javac com/jvm/NameChecker.java                                         
+☁  java [interview] ⚡  javac com/jvm/NameCheckProcessor.java                                 
+☁  java [interview] ⚡  javac -processor com.jvm.NameCheckProcessor com/jvm/BADLY_NAMED_CODE.java
+警告: 来自注释处理程序 'com.jvm.NameCheckProcessor' 的受支持 source 版本 'RELEASE_8' 低于 -source '11'
+com/jvm/BADLY_NAMED_CODE.java:10: 警告: 名称 “BADLY_NAMED_CODE” 应当符合驼式命名法(Camel Case Names)
+public class BADLY_NAMED_CODE {
+       ^
+com/jvm/BADLY_NAMED_CODE.java:11: 警告: 名称 “colors” 应当以大写字母开头
+    enum colors {
+    ^
+com/jvm/BADLY_NAMED_CODE.java:12: 警告: 常量“red”应当全部以大写字母或下划线命名，并且以字母开头
+        red, blue, green;
+        ^
+com/jvm/BADLY_NAMED_CODE.java:12: 警告: 常量“blue”应当全部以大写字母或下划线命名，并且以字母开头
+        red, blue, green;
+             ^
+com/jvm/BADLY_NAMED_CODE.java:12: 警告: 常量“green”应当全部以大写字母或下划线命名，并且以字母开头
+        red, blue, green;
+                   ^
+com/jvm/BADLY_NAMED_CODE.java:15: 警告: 常量“_FORTY_TWO”应当全部以大写字母或下划线命名，并且以字母开头
+    static final int _FORTY_TWO = 42;
+                     ^
+com/jvm/BADLY_NAMED_CODE.java:16: 警告: 名称 “NOT_A_CONSTANT” 应当以小写字母开头
+    public static int NOT_A_CONSTANT = _FORTY_TWO;
+                      ^
+警告: 一个普通方法 “BADLY_NAMED_CODE” 不应当与类名重复，避免与构造函数产生混淆
+com/jvm/BADLY_NAMED_CODE.java:18: 警告: 名称 “BADLY_NAMED_CODE” 应当以小写字母开头
+    protected void BADLY_NAMED_CODE() {
+                   ^
+com/jvm/BADLY_NAMED_CODE.java:22: 警告: 名称 “NOTcamelCASEmethodNAME” 应当以小写字母开头
+    public void NOTcamelCASEmethodNAME() {
+                ^
+11 个警告
+
+```
 
 ## 十一，后端编译与优化
+
+#### 1，即时编译器
+
+- 解释器与编译器
+
+> 解释器与编译器两者各有优势：
+>
+> > 当程序需要迅速启动和执行的时候，解释器可以首先发挥作用，省去编译的时间，立即运行；
+> >
+> > 当程序启动后，随着时间的推移，编译器逐渐发挥作用，把越来越多的代码编译成本地代码，这样可以减少解释器的中间损耗，获得更高的执行效率；
+> >
+> > 当程序运行环境中内存资源限制较大，可以使用解释执行节约内存（如部分嵌入式系统中和大部分的  `JavaCard` 应用中就只有解释器的存在），反之可以使用编译执行来提升效率；
+> >
+> > 解释器可以作为编译器激进优化时后备的“**逃生门**”（如果情况允许，`HotSpot` 虚拟机中也会采用不进行激进优化的客户端编译器充当“逃生门”的角色），让编译器根据概率选择一些不能保证所有情况都正确，但大多数时候都能提升运行速度的优化手段，当激进优化的假设不成立，如加载了新类以后，类型继承结构出现变化、出现“**罕见陷阱**”（`Uncommon Trap`）时可以通过 **逆优化**（`Deoptimization`）退回到解释状态继续执行，因此在整个 `Java` 虚拟机执行架构里，解释器与编译器经常是相辅相成地配合工作。
+>
+> `HotSpot` 虚拟机中内置了两个（或三个）即时编译器，其中有两个编译器存在已久，分别被称为“**客户端编译器**”（`Client Compiler`）和“**服务端编译器**”（`Server Compiler`），或者简称为 **`C1` 编译器** 和 **`C2` 编译器**，第三个是在 `JDK 10` 时才出现的、长期目标是代替 `C2` 的 `Graal` 编译器。`Graal` 编译器目前还处于实验状态。
+>
+> 在分层编译（`Tiered Compilation`）的工作模式出现以前，`HotSpot` 虚拟机通常是采用解释器与其中一个编译器直接搭配的方式工作，程序使用哪个编译器，只取决于虚拟机运行的模式，`HotSpot` 虚拟机会根据自身版本与宿主机器的硬件性能自动选择运行模式，用户也可以使用“`-client`”或“`-server`”参数去强制指定虚拟机运行在客户端模式还是服务端模式。
+>
+> 无论采用的编译器是客户端编译器还是服务端编译器，解释器与编译器搭配使用的方式在虚拟机中被称为“**混合模式**”（`Mixed Mode`），用户也可以使用参数“`-Xint`”强制虚拟机运行于“**解释模式**”（`Interpreted Mode`），这时候编译器完全不介入工作，全部代码都使用解释方式执行；另外，也 可以使用参数“`-Xcomp`”强制虚拟机运行于“**编译模式**”（`Compiled Mode`），这时候将优先采用编译方式执行程序，但是解释器仍然要在编译无法进行的情况下介入执行过程。
+>
+> 在 `JDK 7` 的服务端模式虚拟机中作为默认编译策略被开启。分层编译根据编译器编译、优化的规模与耗时，划分出不同的编译层次，其中包括：
+>
+> > 第0层：程序纯解释执行，并且解释器不开启性能监控功能（`Profiling`）；
+> >
+> > 第1层：使用客户端编译器将字节码编译为本地代码来运行，进行简单可靠的稳定优化，不开启性能监控功能；
+> >
+> > 第2层：仍然使用客户端编译器执行，仅开启方法及回边次数统计等有限的性能监控功能；
+> >
+> > 第3层：仍然使用客户端编译器执行，开启全部性能监控，除了第2层的统计信息外，还会收集如分支跳转、虚方法调用版本等全部的统计信息；
+> >
+> > 第4层：使用服务端编译器将字节码编译为本地代码，相比起客户端编译器，服务端编译器会启用更多编译耗时更长的优化，还会根据性能监控信息进行一些不可靠的激进优化。
+
+![解释器与编译器的交互](images/jvm_20200920233701.png)
+
+代码清单11-1　虚拟机执行模式
+
+```bash
+☁  java_projects [interview] java -version
+java version "11.0.6" 2020-01-14 LTS
+Java(TM) SE Runtime Environment 18.9 (build 11.0.6+8-LTS)
+Java HotSpot(TM) 64-Bit Server VM 18.9 (build 11.0.6+8-LTS, mixed mode)
+☁  java_projects [interview] java -Xint -version 
+java version "11.0.6" 2020-01-14 LTS
+Java(TM) SE Runtime Environment 18.9 (build 11.0.6+8-LTS)
+Java HotSpot(TM) 64-Bit Server VM 18.9 (build 11.0.6+8-LTS, interpreted mode)
+☁  java_projects [interview] java -Xcomp -version
+java version "11.0.6" 2020-01-14 LTS
+Java(TM) SE Runtime Environment 18.9 (build 11.0.6+8-LTS)
+Java HotSpot(TM) 64-Bit Server VM 18.9 (build 11.0.6+8-LTS, compiled mode)
+```
+
+![分层编译的交互关系](images/jvm_20200920235333.png)
+
+- 编译对象与触发条件
+
+在运行过程中会被即时编译器编译的目标是“**热点代码**”，主要有两类：
+
+> 1）**被多次调用的方法**：依靠方法调用触发的编译，那编译器理所当然地会以整个方法作为编译对象，这种编译也是虚拟机中标准的即时编译方式。
+>
+> 2）**被多次执行的循环体**：尽管编译动作是由循环体所触发的，热点只是方法的一 部分，但编译器依然必须以整个方法作为编译对象，只是执行入口（从方法第几条字节码指令开始执行）会稍有不同，编译时会传入执行入口点字节码序号（`Byte Code Index，BCI`）。这种编译方式因为编译发生在方法执行的过程中，因此被称为“**栈上替换**”（`On Stack Replacement，OSR`），即方法的栈帧还在栈上，方法就被替换。
+
+要知道某段代码是不是热点代码，是不是需要触发即时编译，这个行为称为“**热点探测**”（`Hot Spot Code Detection`），其实进行热点探测并不一定要知道方法具体被调用了多少次，目前主流的热点探测判定方式有：
+
+> 1）**基于采样的热点探测**（`Sample Based Hot Spot Code Detection`）：采用这种方法的虚拟机会周期性地检查各个线程的调用栈顶，如果发现某个（或某些）方法经常出现在栈顶，那这个方法就是“**热点方法**”。基于采样的热点探测的 **好处** 是实现简单高效，还可以很容易地获取方法调用关系（将调用堆栈展开即可），**缺点** 是很难精确地确认一个方法的热度，容易因为受到线程阻塞或别的外界因素的影响而 扰乱热点探测；
+>
+> 2）**基于计数器的热点探测**（`Counter Based Hot Spot Code Detection`）：采用这种方法的虚拟机会为每个方法（甚至是代码块）建立计数器，统计方法的执行次数，如果执行次数超过一定的阈值就认为它是“**热点方法**”。这种统计方法实现起来要麻烦一些，需要为每个方法建立并维护计数器，而且不能直接获取到方法的调用关系，但是它的统计结果相对来说更加精确严谨。
+
+在 `HotSpot` 虚拟机中使用的是基于计数器的热点探测方法，为了实现热点计数，`HotSpot` 为每个方法准备了两类计数器：
+
+> **方法调用计数器**（`Invocation Counter`）：
+>
+> > 用于统计方法被调用的次数，它的默认阈值在客户端模式下是1500次，在服务端模式下是10000次，这个阈值可以通过虚拟机参数 `-XX： CompileThreshold` 来人为设定。当一个方法被调用时，虚拟机会先检查该方法是否存在被即时编译过的版本，如果存在，则优先使用编译后的本地代码来执行。如果不存在已被编译过的版本，则将该方法 的调用计数器值加一，然后判断方法调用计数器与回边计数器值之和是否超过方法调用计数器的阈值。一旦已超过阈值的话，将会向即时编译器提交一个该方法的代码编译请求。
+> >
+> > 如果没有做过任何设置，执行引擎默认不会同步等待编译请求完成，而是继续进入解释器按照解释方式执行字节码，直到提交的请求被即时编译器编译完成。
+> >
+> > 在默认设置下，方法调用计数器统计的并不是方法被调用的绝对次数，而是一个相对的执行频率，即一段时间之内方法被调用的次数。当超过一定的时间限度，如果方法的调用次数仍然不足以让它提交给即时编译器编译，那该方法的调用计数器就会被减少一半，这个过程被称为方法调用计数器 **热度的衰减**（`Counter Decay`），而这段时间就称为此方法统计的 **半衰周期**（`Counter Half Life Time`）， 进行热度衰减的动作是在虚拟机进行垃圾收集时顺便进行的，可以使用虚拟机参数 `-XX：UseCounterDecay` 来关闭热度衰减，让方法计数器统计方法调用的绝对次数，这样只要系统运行时间足 够长，程序中绝大部分方法都会被编译成本地代码；另外还可以使用 `-XX：CounterHalfLifeTime` 参数设置半衰周期的时间，单位是秒。
+>
+> **回边计数器**（`Back Edge Counter`，“回边”的意思是指在循环边界往回跳转）：
+>
+> > 其作用是统计一个方法中循环体代码执行的次数，在字节码中遇到控制流向后跳转的指令就称为“**回边**（`Back Edge`）”，很显然建立回边计数器统计的目的是为了触发栈上的替换编译。
+> >
+> > 关于回边计数器的阈值，虽然 `HotSpot` 虚拟机也提供了一个类似于方法调用计数器阈值 `-XX： CompileThreshold` 的参数 `-XX：BackEdgeThreshold` 供用户设置，但是当前的 `HotSpot` 虚拟机实际上并未使用此参数，必须设置另外一个参数 `-XX：OnStackReplacePercentage` 来间接调整回边计数器的阈值，其计算公式有：
+> >
+> > > 1）客户端模式下，回边计数器阈值计算公式为：方法调用计数器阈值（`-XX： CompileThreshold`）乘以 `OSR` 比率（`-XX：OnStackReplacePercentage`）除以100。其中 `-XX： OnStackReplacePercentage` 默认值为933，如果都取默认值，那客户端模式虚拟机的回边计数器的阈值为 13995；
+> > >
+> > > 2）服务端模式下，回边计数器阈值的计算公式为：方法调用计数器阈值（`-XX： CompileThreshold`）乘以（`OSR` 比率（`-XX：OnStackReplacePercentage`）减去解释器监控比率（`-XX： InterpreterProfilePercentage`）的差值）除以100。其中 `-XX：OnStack ReplacePercentage` 默认值为140，`XX：InterpreterProfilePercentage` 默认值为33，如果都取默认值，那服务端模式虚拟机回边计数器的阈值为10700。
+> >
+> > 当解释器遇到一条回边指令时，会先查找将要执行的代码片段是否有已经编译好的版本，如果有，它将会优先执行已编译的代码，否则就把回边计数器的值加一，然后判断方法调用计数器与回边计数器值之和是否超过回边计数器的阈值。当超过阈值的时候，将会提交一个栈上替换编译请求， 并且把回边计数器的值稍微降低一些，以便继续在解释器中执行循环，等待编译器输出编译结果。
+
+当虚拟机运行参数确定的前提下，这两个计数器都有一个明确的阈值，计数器阈值一旦溢出，就会触发即时编译。
+
+![方法调用计数器触发即时编译](images/jvm_20200921084832.png)
+
+![回边计数器触发即时编译](images/jvm_20200921090026.png)
+
+- 编译过程
+
+在默认条件下，无论是方法调用产生的标准编译请求，还是栈上替换编译请求，虚拟机在编译器还未完成编译之前，都仍然将按照解释方式继续执行代码，而编译动作则在后台的编译线程中进行。 用户可以通过参数 `-XX：-BackgroundCompilation` 来禁止后台编译，后台编译被禁止后，当达到触发即时编译的条件时，执行线程向虚拟机提交编译请求以后将会一直阻塞等待，直到编译过程完成再开始 执行编译器输出的本地代码。
+
+对于客户端编译器来说，它是一个相对简单快速的三段式编译器，主要的 **关注点** 在于局部性的优化，而放弃了许多耗时较长的全局优化手段。
+
+> 第一阶段：一个平台独立的前端将字节码构造成一种 **高级中间代码表示**（`High-Level Intermediate Representation`，`HIR`，即与目标机器指令集无关的中间表示）。`HIR` 使用静态单分配 （`Static Single Assignment，SSA`）的形式来代表代码值，这可以使得一些在 `HIR` 的构造过程之中和之后进行的优化动作更容易实现。在此之前编译器已经会在字节码上完成一部分基础优化，如方法内联、常量传播等优化将会在字节码被构造成 `HIR`之前完成；
+>
+> 第二阶段：一个平台相关的后端从 `HIR` 中产生 **低级中间代码表示**（`Low-Level Intermediate Representation`，`LIR`，即与目标机器指令集相关的中间表示），而在此之前会在 `HIR` 上完成另外一些优 化，如空值检查消除、范围检查消除等，以便让 `HIR` 达到更高效的代码表示形式；
+>
+> 第三阶段：是在平台相关的后端使用线性扫描算法（`Linear Scan Register Allocation`）在 `LIR` 上分配寄存器，并在 `LIR` 上做窥孔（`Peephole`）优化，然后产生机器代码。
+
+![Client Compiler架构](images/jvm_20200921091546.png)
+
+- 实战：查看及分析即时编译结果
+
+代码清单11-2　查看及分析即时编译结果用例
+
+```java
+package com.jvm;
+
+/**
+ * 查看及分析即时编译结果
+ * VM Args： -XX:+PrintCompilation (要求虚拟机在即时编译时将被编译成本地代码的方法名称打印出来)
+ * VM Args： -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining (要求虚拟机输出方法内联信息)
+ * ==============only in debug version of VM============================
+ * VM Args： -XX:+PrintOptoAssembly（用于服务端模式的虚拟机）
+ * VM Args： -XX:+PrintLIR（用于客户端模式的虚拟机）来输出比较接近最终结果的中间代码表示
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/21 09:44
+ */
+public class JitCompilerTest {
+
+    public static final int NUM = 15000;
+
+    public static int doubleValue(int i) {
+        // 空循环用于后面演示JIT代码优化过程
+        int count = 100000;
+        for (int j = 0; j < count; j++) { }
+        return i * 2;
+    }
+
+    public static long calcSum() {
+        long sum = 0;
+        int count = 100;
+        for (int i = 0; i < count; i++) {
+            sum += doubleValue(i);
+        }
+
+        return sum;
+    }
+
+    public static void main(String[] args) {
+        for (int i = 0; i < NUM; i++) {
+            calcSum();
+        }
+    }
+}
+```
+
+运行结果：
+
+1）要求虚拟机在即时编译时将被编译成本地代码的方法名称打印出来
+
+```bash
+132    1       3       java.lang.String::equals (81 bytes)
+133    2       3       java.lang.String::hashCode (55 bytes)
+134    3       4       java.lang.String::charAt (29 bytes)
+134    4     n 0       java.lang.System::arraycopy (native)   (static)
+134    5       3       java.lang.String::lastIndexOf (52 bytes)
+135    6       3       java.lang.Object::<init> (1 bytes)
+135    8       3       java.lang.Math::min (11 bytes)
+135    7       3       java.lang.String::length (6 bytes)
+139    9       3       java.lang.String::indexOf (70 bytes)
+140   10       3       java.lang.System::getSecurityManager (4 bytes)
+140   11       3       sun.nio.cs.UTF_8$Encoder::encode (359 bytes)
+141   12       3       java.lang.AbstractStringBuilder::append (50 bytes)
+142   14       3       java.lang.Character::toLowerCase (9 bytes)
+142   15       3       java.lang.CharacterData::of (120 bytes)
+143   16       3       java.lang.CharacterDataLatin1::toLowerCase (39 bytes)
+143   13       3       java.lang.String::getChars (62 bytes)
+159   17       3       java.util.HashMap::getNode (148 bytes)
+159   18       3       java.lang.String::indexOf (166 bytes)
+160   19       3       java.lang.String::indexOf (7 bytes)
+161   20       1       java.lang.Object::<init> (1 bytes)
+161    6       3       java.lang.Object::<init> (1 bytes)   made not entrant
+163   21       3       java.io.UnixFileSystem::normalize (75 bytes)
+164   22       3       java.util.HashMap::hash (20 bytes)
+166   23     n 0       java.lang.Thread::currentThread (native)   (static)
+167   24       3       java.util.Arrays::copyOfRange (63 bytes)
+168   25       3       java.lang.ref.SoftReference::get (29 bytes)
+168   26       3       java.lang.String::startsWith (72 bytes)
+169   27       1       java.lang.ref.Reference::get (5 bytes)
+169   28       1       java.lang.String::length (6 bytes)
+169    7       3       java.lang.String::length (6 bytes)   made not entrant
+171   29       3       java.lang.ThreadLocal::getMap (5 bytes)
+171   30       1       java.lang.ThreadLocal::access$400 (5 bytes)
+171   31       3       java.lang.String::<init> (82 bytes)
+172   32       3       java.lang.Character::toLowerCase (6 bytes)
+172   33       3       java.lang.StringCoding::deref (19 bytes)
+173   34       3       java.lang.ThreadLocal::get (38 bytes)
+173   35       1       java.net.URL::getProtocol (5 bytes)
+176   36       3       java.util.Arrays::copyOf (19 bytes)
+176   38       1       java.net.URL::getAuthority (5 bytes)
+176   39       1       java.net.URL::getPath (5 bytes)
+176   37  s    1       java.util.Vector::size (5 bytes)
+177   40       3       java.nio.charset.CharsetEncoder::maxBytesPerChar (5 bytes)
+177   41       1       java.io.File::getPath (5 bytes)
+178   42       1       java.net.URL::getFile (5 bytes)
+178   43       3       java.lang.String::lastIndexOf (13 bytes)
+179   44       3       java.io.UnixFileSystem::prefixLength (25 bytes)
+181   45       1       java.util.ArrayList::size (5 bytes)
+185   46       3       java.lang.StringBuilder::append (8 bytes)
+188   47 %     3       com.jvm.JitCompilerTest::doubleValue @ 5 (20 bytes)
+188   48       3       com.jvm.JitCompilerTest::doubleValue (20 bytes)
+189   49 %     4       com.jvm.JitCompilerTest::doubleValue @ 5 (20 bytes)
+190   47 %     3       com.jvm.JitCompilerTest::doubleValue @ -2 (20 bytes)   made not entrant
+190   50       4       com.jvm.JitCompilerTest::doubleValue (20 bytes)
+190   48       3       com.jvm.JitCompilerTest::doubleValue (20 bytes)   made not entrant
+191   51       3       com.jvm.JitCompilerTest::calcSum (28 bytes)
+191   52 %     4       com.jvm.JitCompilerTest::calcSum @ 7 (28 bytes)
+194   53       4       com.jvm.JitCompilerTest::calcSum (28 bytes)
+195   51       3       com.jvm.JitCompilerTest::calcSum (28 bytes)   made not entrant
+```
+
+2）要求虚拟机输出方法内联信息
+
+```bash
+@ 16   java.lang.Math::min (11 bytes)
+@ 48   java.lang.String::lastIndexOfSupplementary (70 bytes)   callee is too large
+@ 66   java.lang.String::indexOfSupplementary (71 bytes)   callee is too large
+@ 14   java.lang.Math::min (11 bytes)
+@ 139   java.lang.Character::isSurrogate (18 bytes)
+@ 157  sun/nio/cs/Surrogate$Parser::<init> (not loaded)   not inlineable
+@ 175  sun/nio/cs/Surrogate$Parser::parse (not loaded)   not inlineable
+@ 186   java.nio.charset.CharsetEncoder::malformedInputAction (5 bytes)
+@ 5   java.lang.AbstractStringBuilder::appendNull (56 bytes)   callee is too large
+@ 10   java.lang.String::length (6 bytes)
+@ 21   java.lang.AbstractStringBuilder::ensureCapacityInternal (27 bytes)
+  @ 17   java.lang.AbstractStringBuilder::newCapacity (39 bytes)   callee is too large
+  @ 20   java.util.Arrays::copyOf (19 bytes)
+    @ 11   java.lang.Math::min (11 bytes)
+    @ 14   java.lang.System::arraycopy (0 bytes)   intrinsic
+@ 35   java.lang.String::getChars (62 bytes)   callee is too large
+@ 9  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 27  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 43  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 58   java.lang.System::arraycopy (0 bytes)   intrinsic
+@ 1   java.lang.CharacterData::of (120 bytes)   callee is too large
+@ 5   java.lang.CharacterData::toLowerCase (0 bytes)   no static binding
+@ 4   java.lang.CharacterDataLatin1::getProperties (11 bytes)
+@ 59   java.lang.Object::equals (11 bytes)   no static binding
+@ 94   java.util.HashMap$TreeNode::getTreeNode (22 bytes)   not inlineable
+@ 126   java.lang.Object::equals (11 bytes)   no static binding
+@ 3   java.lang.String::indexOf (70 bytes)   callee is too large
+@ 1   java.lang.String::length (6 bytes)
+@ 19   java.lang.String::charAt (29 bytes)
+  @ 18  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 44   java.io.UnixFileSystem::normalize (132 bytes)   callee is too large
+@ 69   java.io.UnixFileSystem::normalize (132 bytes)   callee is too large
+@ 9   java.lang.Object::hashCode (0 bytes)   no static binding
+@ 16   java.lang.StringBuilder::<init> (7 bytes)
+  @ 3   java.lang.AbstractStringBuilder::<init> (12 bytes)
+    @ 1   java.lang.Object::<init> (1 bytes)
+@ 20   java.lang.StringBuilder::append (8 bytes)
+  @ 2   java.lang.AbstractStringBuilder::append (62 bytes)   callee is too large
+@ 25   java.lang.StringBuilder::append (8 bytes)
+  @ 2   java.lang.AbstractStringBuilder::append (50 bytes)   callee is too large
+@ 29   java.lang.StringBuilder::append (8 bytes)
+  @ 2   java.lang.AbstractStringBuilder::append (62 bytes)   callee is too large
+@ 32   java.lang.StringBuilder::toString (17 bytes)
+  @ 13   java.lang.String::<init> (82 bytes)   callee is too large
+@ 35   java.lang.IllegalArgumentException::<init> (6 bytes)   don't inline Throwable constructors
+@ 54   java.lang.Math::min (11 bytes)
+@ 57   java.lang.System::arraycopy (0 bytes)   intrinsic
+@ 1   java.lang.ref.Reference::get (5 bytes)   intrinsic
+@ 1   java.lang.Object::<init> (1 bytes)
+@ 13  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 30  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 65  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 75   java.util.Arrays::copyOfRange (63 bytes)   callee is too large
+@ 1   java.lang.Character::toLowerCase (9 bytes)
+  @ 1   java.lang.CharacterData::of (120 bytes)   callee is too large
+  @ 5   java.lang.CharacterData::toLowerCase (0 bytes)   no static binding
+@ 1   java.lang.ThreadLocal::get (38 bytes)   callee is too large
+@ 15   java.lang.ref.SoftReference::get (29 bytes)
+  @ 1   java.lang.ref.Reference::get (5 bytes)   intrinsic
+@ 0   java.lang.Thread::currentThread (0 bytes)   intrinsic
+@ 6   java.lang.ThreadLocal::getMap (5 bytes)
+@ 16   java.lang.ThreadLocal$ThreadLocalMap::access$000 (6 bytes)
+  @ 2   java.lang.ThreadLocal$ThreadLocalMap::getEntry (42 bytes)   callee is too large
+@ 34   java.lang.ThreadLocal::setInitialValue (36 bytes)   callee is too large
+@ 2   java.lang.StringCoding::scale (7 bytes)
+@ 11   java.lang.Math::min (11 bytes)
+@ 14   java.lang.System::arraycopy (0 bytes)   intrinsic
+@ 9   java.lang.String::lastIndexOf (52 bytes)   callee is too large
+@ 1   java.lang.String::length (6 bytes)
+@ 11   java.lang.String::charAt (29 bytes)
+  @ 18  java/lang/StringIndexOutOfBoundsException::<init> (not loaded)   not inlineable
+@ 2   java.lang.AbstractStringBuilder::append (50 bytes)   callee is too large
+@ 14   com.jvm.JitCompilerTest::doubleValue (20 bytes)   inlining prohibited by policy
+@ 14   com.jvm.JitCompilerTest::doubleValue (20 bytes)   inline (hot)
+@ 14   com.jvm.JitCompilerTest::doubleValue (20 bytes)   inline (hot)
+```
+
+#### 2，提前编译器
+
+- 提前编译器分类
+
+> 1）是做与传统 `C`、`C++` 编译器类似的，在程序运行之前把程序代码编译成机器码的静态翻译工作；在 `Java` 中存在的价值直指即时编译的最大弱点：即时编译要占用程序运行时间和运算资源。
+>
+> 2）是把原本即时编译器在运行时要做的编译工作提前做好并保存下来，下次运行到这些代码（譬如公共库代码在被同一台机器其他 `Java` 进程使用）时直接把它加载进来使用。**本质** 是给即时编译器做缓存加速，去改善 `Java` 程序的启动时间，以及需要一段时间预热后才能到达最高性能的问题。这种提前编译被称为 **动态提前编译**（`Dynamic AOT`）或者叫 **即时编译缓存**（`JIT Caching`）。在目前的 `Java` 技术体系里，这条路径的提前编译已经完全被主流的商用 `JDK` 支持。在商业应用中，这条路径最早出现在 `JDK 6` 版本的 `IBM J9` 虚拟机上，那时候在它的 `CDS`（`Class Data Sharing`）功能的缓存中就有一块是即时编译缓存。
+
+- 提前编译器的优势
+
+> 1）**性能分析制导优化**（`Profile-Guided Optimization，PGO`）：在解释器或者客户端编译器运行过程中，会不断收集性能监控信息，譬如某个程序 点抽象类通常会是什么实际类型、条件判断通常会走哪条分支、方法调用通常会选择哪个版本、循环 通常会进行多少次等，这些数据一般在静态分析时是无法得到的，或者不可能存在确定且唯一的解， 最多只能依照一些启发性的条件去进行猜测。但在动态运行时却能看出它们具有非常明显的偏好性。 如果一个条件分支的某一条路径执行特别频繁，而其他路径鲜有问津，那就可以把热的代码集中放到 一起，集中优化和分配更好的资源（分支预测、寄存器、缓存等）给它；
+>
+> 2）**激进预测性优化**（`Aggressive Speculative Optimization`）：已经成为很多即时编译优化措施的基础。静态优化无论如何都必须保证优化后所有的程序外部可见影响（不仅仅是执行结果） 与优化前是等效的，不然优化之后会导致程序报错或者结果不对，若出现这种情况，则速度再快也是没有价值的。然而，相对于提前编译来说，即时编译的策略就可以不必这样保守，如果性能监控信息能够支持它做出一些正确的可能性很大但无法保证绝对正确的预测判断，就已经可以大胆地按照高概率的假设进行优化，万一真的走到罕见分支上，大不了退回到低级编译器甚至解释器上去执行，并不会出现无法挽救的后果。只要出错概率足够低，这样的优化往往能够大幅度降低目标程序的复杂度， 输出运行速度非常高的代码；
+>
+> 3）**链接时优化**（`Link-Time Optimization，LTO`）：`Java` 语言天生就是动态链接的，一个个 `Class` 文件在运行期被加载到虚拟机内存当中，然后在即时编译器里产生优化后的本地代码，这类事情在 `Java` 程序员眼里看起来毫无违和之处。
+
+- 实战：`Jaotc` 的提前编译
+
+`JDK 9` 引入了用于支持对 `Class` 文件和模块进行提前编译的工具 `Jaotc`，以减少程序的启动时间和到达全速性能的预热时间，但由于这项功能必须针对特定物理机器和目标虚拟机的运行参数来使用，加之限制太多，`Java` 开发人员对此了解、使用普遍比较少，将用 `Jaotc` 来编译 `Java SE` 的基础库 （`java.base` 模块），以改善本机 `Java` 环境的执行效率。
+
+代码清单11-3　`Jaotc` 的提前编译用例
+
+```java
+package com.jvm;
+
+/**
+ * Jaotc 的提前编译用例
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/9/21 13:08
+ */
+public class JaotcTest {
+    public static void main(String[] args) {
+        System.out.println("Hello Jaotc!");
+    }
+}
+```
+
+运行结果：
+
+```bash
+☁  java [interview] ⚡  javac com/jvm/JaotcTest.java 
+☁  java [interview] ⚡  java com.jvm.JaotcTest 
+Hello Jaotc!
+☁  java [interview] ⚡  /Library/Java/JavaVirtualMachines/jdk-11.0.6.jdk/Contents/Home/bin/jaotc --output libJaotcTest.so com/jvm/JaotcTest.class 
+# mac下用otool -L 替代 ldd
+☁  java [interview] ⚡  otool -L libJaotcTest.so
+libJaotcTest.so:
+        libJaotcTest.so (compatibility version 0.0.0, current version 0.0.0)
+☁  java [interview] ⚡  nm libJaotcTest.so 
+..........
+0000000000001520 t _com.jvm.JaotcTest.<init>()V
+0000000000001620 t _com.jvm.JaotcTest.main([Ljava/lang/String;)V
+..........
+☁  java [interview] ⚡  java -XX:+UnlockExperimentalVMOptions -XX:AOTLibrary=./libJaotcTest.so com.jvm.JaotcTest
+Hello Jaotc!
+```
+
+#### 3，编译优化技术
+
+- 优化技术概览
+
+![优化技术概览1](images/jvm_20200921205446.png)
+
+![优化技术概览2](images/jvm_20200921205519.png)
+
+- 方法内联
+
+**方法内联** 的优化行为是把目标方法的代码原封不动地“复制”到发起调用的方法之中，避免发生真实的方法调用而已。但实际上 `Java` 虚拟机中的内联过程却远没有想象中容易，甚至如果不是即时编译器做了一些特殊的努力，按照经典编译原理的优化理论，大多数的 `Java` 方法都无法进行内联。
+
+为了解决虚方法的内联问题，`Java` 虚拟机首先引入了一种名为 **类型继承关系分析**（`Class Hierarchy Analysis`，`CHA`）的技术，这是整个应用程序范围内的类型分析技术，用于确定在目前已加载的类中，某个接口是否有多于一种的实现、某个类是否存在子类、某个子类是否覆盖了父类的某个虚方法 等信息。这样，编译器在进行内联时就会分不同情况采取不同的处理：如果是非虚方法，那么直接进行内联即可，这种的内联是有百分百安全保障的；如果遇到虚方法，则会向 `CHA` 查询此方法在当前程序状态下是否真的有多个目标版本可供选择，如果查询到只有一个版本，那就可以假设“应用程序的全貌就是现在运行的这个样子”来进行内联，这种内联被称为 **守护内联**（`Guarded Inlining`）。
+
+假如向 `CHA` 查询出来的结果是该方法确实有多个版本的目标方法可供选择，那即时编译器还将进行最后一次努力，使用 **内联缓存**（`Inline Cache`）的方式来缩减方法调用的开销。
+
+> **内联缓存** 是一个建立在目标方法正常入口之前的缓存，它的工作原理大致为：在未发生方法调用之前，内联缓存状态为空，当第一次调用发生后，缓存记录下方法接收者的版本信息，并且每次进行方法调用时都比较接收者的版本。如果以后进来的每次调用的方法接收者版本都是一样的，那么这时它就是一种 **单态内联缓存**（`Monomorphic Inline Cache`）。但如果真的出现方法接收者不一致的情况，就说明程序用到了虚方法的多态特性，这时候会退化成 **超多态内联缓存**（`Megamorphic Inline Cache`），其开销相当于真正查找虚方法表来进行方法分派。
 
 - 逃逸分析
 
@@ -1244,7 +2188,15 @@ class Point {
 }
 ```
 
+- 公共子表达式消除
 
+如果一 个表达式 `E` 之前已经被计算过，并且从先前的计算到现在 `E` 中所有变量的值都没有发生变化，那么 `E` 的这次出现就称为 **公共子表达式**。对于这种表达式，没有必要花时间再对它重新进行计算，只需要直接用前面计算过的表达式结果代替 `E`。如果这种优化仅限于程序基本块内，便可称为 **局部公共子表达式消除**（`Local Common Subexpression Elimination`），如果这种优化的范围涵盖了多个基本块，那就称为 **全局公共子表达式消除**（`Global Common Subexpression Elimination`）。
+
+- 数组边界检查消除
+
+**数组边界检查消除**（`Array Bounds Checking Elimination`）是即时编译器中的一项语言相关的经典优化技术。
+
+#### 4，实战：深入理解 `Graal` 编译器
 
 ## 十二，Java内存模型与线程
 

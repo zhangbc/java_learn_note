@@ -74,3 +74,4 @@ out
 gen
 
 trace
+*.so
