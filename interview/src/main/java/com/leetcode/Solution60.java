@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * interview
+ * 60. 第k个排列
  *
  * @author zhangbocheng
  * @version v1.0

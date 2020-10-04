@@ -1,4 +1,4 @@
-package com.leetcode;
+package com.exam;
 
 /**
  * 有一个非空的乱序数组，其中有若干个0。请将所有的0，移动到数组末尾。

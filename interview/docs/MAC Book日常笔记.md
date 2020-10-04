@@ -101,9 +101,7 @@ $ brew upgrade python
 
 ![image-20200910225540431](images/image-20200910225540431.png)
 
-
-
-## 参考博文
+## 参考文献
 
 - [Mac OS X删除临时文件释放空间](https://blog.csdn.net/x_focus/article/details/50042385)
 
