@@ -626,6 +626,7 @@ public class Cartoon extends Drawing {
     }
 }
 
+
 class Art {
     Art() {
         System.out.println("Art constructor.");
@@ -2291,7 +2292,255 @@ public class TryWithResources {
 
 #### 1，文件系统
 
-一个 **Path** 对象表示一个文件或者目录的路径，是一个跨操作系统（OS）和文件系统的抽象，目的是在构造路径时不必关注底层操作系统，代码可以在不进行修改的情况下运行在不同的操作系统上。**java.nio.file.Paths** 类包含一个重载方法 **static get()***，该方法接受一系列 **String** 字符串或一个 **统一资源标识符(URI)** 作为参数，并且进行转换返回一个 **Path** 对象。
+一个 **Path** 对象表示一个文件或者目录的路径，是一个跨操作系统（OS）和文件系统的抽象，目的是在构造路径时不必关注底层操作系统，代码可以在不进行修改的情况下运行在不同的操作系统上。**java.nio.file.Paths** 类包含一个重载方法 **static get()**，该方法接受一系列 **String** 字符串或一个 **统一资源标识符(URI)** 作为参数，并且进行转换返回一个 **Path** 对象。
+
+删除目录树的方法实现依赖于 **Files.walkFileTree()**，"**walking**" 目录树意味着遍历每个子目录和文件。**Visitor** 设计模式提供了一种标准机制来访问集合中的每个对象，然后你需要提供在每个对象上执行的操作。 此操作的定义取决于实现的  **FileVisitor** 的四个抽象方法，包括：
+
+```bash
+preVisitDirectory()：在访问目录中条目之前在目录上运行。 
+visitFile()：运行目录中的每一个文件。  
+visitFileFailed()：调用无法访问的文件。   
+postVisitDirectory()：在访问目录中条目之后在目录上运行，包括所有的子目录。
+```
+
+通过 **WatchService** 可以设置一个进程对目录中的更改做出响应。
+
+如果一个文件很“小”，也就是说“它运行得足够快且占用内存小”，那么 `java.nio.file.Files` 类中的实用程序将帮助你轻松读写文本和二进制文件。
+
+## 十一，字符串
+
+#### 1，字符串
+
+`String` 对象是不可变的。
+
+`StringBuilder `是 `Java SE5` 引入的，在这之前用的是 `StringBuffer`。后者是线程安全的，因此开销也会大些。使用 `StringBuilder` 进行字符串操作更快一点。
+
+- 字符串操作
+
+| 方法 | 参数，重载版本 | 作用 |
+| ------------------ | -------------| ----------------------- |
+| 构造方法                               | 默认版本， `String`，`StringBuilder`，`StringBuffer`，`char`数组，`byte`数组 | 创建`String`对象                                             |
+| `length()`                             |                                                              | `String`中字符的个数                                         |
+| `charAt()`                             | `int`索引                                                    | 获取`String`中索引位置上的`char`                             |
+| `getChars()`，`getBytes()`             | 待复制部分的开始和结束索引，复制的目标数组，目标数组的开始索引 | 复制`char`或`byte`到一个目标数组中                           |
+| `toCharArray()`                        |                                                              | 生成一个`char[]`，包含`String`中的所有字符                   |
+| `equals()`，`equalsIgnoreCase()`       | 与之进行比较的`String`                                       | 比较两个`String`的内容是否相同。如果相同，结果为`true`       |
+| `compareTo()`，`compareToIgnoreCase()` | 与之进行比较的`String`                                       | 按词典顺序比较`String`的内容，比较结果为负数、零或正数。注意，大小写不等价 |
+| `contains()`                           | 要搜索的`CharSequence`                                       | 如果该`String`对象包含参数的内容，则返回`true`               |
+| `contentEquals()`                      | 与之进行比较的`CharSequence`或`StringBuffer`                 | 如果该`String`对象与参数的内容完全一致，则返回`true`         |
+| `isEmpty()`                            |                                                              | 返回`boolean`结果，以表明`String`对象的长度是否为0           |
+| `regionMatches()`                      | 该`String`的索引偏移量，另一个`String`及其索引偏移量，要比较的长度。重载版本增加了“忽略大小写”功能 | 返回`boolean`结果，以表明所比较区域是否相等                  |
+| `startsWith()`                         | 可能的起始`String`。重载版本在参数中增加了偏移量             | 返回`boolean`结果，以表明该`String`是否以传入参数开始        |
+| `endsWith()`                           | 该`String`可能的后缀`String`                                 | 返回`boolean`结果，以表明此参数是否是该字符串的后缀          |
+| `indexOf()`，`lastIndexOf()`           | 重载版本包括：`char`，`char`与起始索引，`String`，`String`与起始索引 | 如果该`String`并不包含此参数，就返回-1；否则返回此参数在`String`中的起始索引。`lastIndexOf`()是从后往前搜索 |
+| `matches()`                            | 一个正则表达式                                               | 返回`boolean`结果，以表明该`String`和给出的正则表达式是否匹配 |
+| `split()`                              | 一个正则表达式。可选参数为需要拆分的最大数量                 | 按照正则表达式拆分`String`，返回一个结果数组                 |
+| `join()`（Java8引入的）                | 分隔符，待拼字符序列。用分隔符将字符序列拼接成一个新的`String` | 用分隔符拼接字符片段，产生一个新的`String`                   |
+| `substring()`（即`subSequence()`）     | 重载版本：起始索引；起始索引+终止索引                        | 返回一个新的`String`对象，以包含参数指定的子串               |
+| `concat()`                             | 要连接的`String`                                             | 返回一个新的`String`对象，内容为原始`String`连接上参数`String` |
+| `replace()`                            | 要替换的字符，用来进行替换的新字符。也可以用一个`CharSequence`替换另一个`CharSequence` | 返回替换字符后的新`String`对象。如果没有替换发生，则返回原始的`String`对象 |
+| `replaceFirst()`                       | 要替换的正则表达式，用来进行替换的`String`                   | 返回替换首个目标字符串后的`String`对象                       |
+| `replaceAll()`                         | 要替换的正则表达式，用来进行替换的`String`                   | 返回替换所有目标字符串后的`String`对象                       |
+| `toLowerCase()`，`toUpperCase()`       |                                                              | 将字符的大小写改变后，返回一个新的`String`对象。如果没有任何改变，则返回原始的`String`对象 |
+| `trim()`                               |                                                              | 将`String`两端的空白符删除后，返回一个新的`String`对象。如果没有任何改变，则返回原始的`String`对象 |
+| `valueOf()`（`static`）                | 重载版本：`Object`；`char[]`；`char[]`，偏移量，与字符个数；`boolean`；`char`；`int`；`long`；`float`；`double` | 返回一个表示参数内容的`String`                               |
+| `intern()`                             |                                                              | 为每个唯一的字符序列生成一个且仅生成一个`String`引用         |
+| `format()`                             | 要格式化的字符串，要替换到格式化字符串的参数                 | 返回格式化结果`String`                                       |
+
+- 格式化操作
+
+在 `Java` 中，所有的格式化功能都是由 `java.util.Formatter` 类处理的。
+
+在插入数据时，如果想要优化空格与对齐，你需要更精细复杂的格式修饰符。
+
+```java
+%[argument_index$][flags][width][.precision]conversion 
+```
+
+| 类型 | 含义               |
+| ---- | ------------------ |
+| `d`  | 整型（十进制）     |
+| `c`  | Unicode字符        |
+| `b`  | Boolean值          |
+| `s`  | String             |
+| `f`  | 浮点数（十进制）   |
+| `e`  | 浮点数（科学计数） |
+| `x`  | 整型（十六进制）   |
+| `h`  | 散列码（十六进制） |
+| `%`  | 字面值“%”          |
+
+#### 2，正则表达式
+
+正则表达式是一种强大而灵活的文本处理工具。使用正则表达式，我们能够以编程的方式，构造复杂的文本模式，并对输入 `String` 进行搜索。
+
+正则表达式提供了一种完全通用的方式，能够解决各种 `String` 处理相关的问题：匹配、选择、编辑以及验证。
+
+| 表达式   | 含义                                    |
+| -------- | --------------------------------------- |
+| `B`      | 指定字符`B`                             |
+| `\xhh`   | 十六进制值为`0xhh`的字符                |
+| `\uhhhh` | 十六进制表现为`0xhhhh`的 `Unicode` 字符 |
+| `\t`     | 制表符 `Tab`                            |
+| `\n`     | 换行符                                  |
+| `\r`     | 回车                                    |
+| `\f`     | 换页                                    |
+| `\e`     | 转义（`Escape`）                        |
+
+| 边界匹配符 | 含义             |
+| ---------- | ---------------- |
+| `^`        | 一行的开始       |
+| `$`        | 一行的结束       |
+| `\b`       | 词的边界         |
+| `\B`       | 非词的边界       |
+| `\G`       | 前一个匹配的结束 |
+
+**量词** 描述了一个模式捕获输入文本的方式。
+
+> **贪婪型**： 量词总是贪婪的，除非有其他的选项被设置。贪婪表达式会为所有可能的模式发现尽可能多的匹配。导致此问题的一个典型理由就是假定我们的模式仅能匹配第一个可能的字符组，如果它是贪婪的，那么它就会继续往下匹配；
+>
+> **勉强型**： 用问号来指定，这个量词匹配满足模式所需的最少字符数。因此也被称作懒惰的、最少匹配的、非贪婪的或不贪婪的；
+>
+> **占有型**：这种类型的量词只有在 `Java` 语言中才可用（在其他语言中不可用），并且也更高级，因此我们大概不会立刻用到它。当正则表达式被应用于 `String` 时，它会产生相当多的状态，以便在匹配失败时可以回溯。而“占有的”量词并不保存这些中间状态，因此它们可以防止回溯。它们常常用于防止正则表达式失控，因此可以使正则表达式执行起来更高效。
+
+| 贪婪型   | 勉强型    | 占有型    | 如何匹配                    |
+| -------- | --------- | --------- | --------------------------- |
+| `X?`     | `X??`     | `X?+`     | 一个或零个`X`               |
+| `X*`     | `X*?`     | `X*+`     | 零个或多个`X`               |
+| `X+`     | `X+?`     | `X++`     | 一个或多个`X`               |
+| `X{n}`   | `X{n}?`   | `X{n}+`   | 恰好`n`次`X`                |
+| `X{n,}`  | `X{n,}?`  | `X{n,}+`  | 至少`n`次`X`                |
+| `X{n,m}` | `X{n,m}?` | `X{n,m}+` | `X`至少`n`次，但不超过`m`次 |
+
+比起功能有限的 `String` 类，我们更愿意构造功能强大的正则表达式对象，只需导入 `java.util.regex`包，然后用 `static Pattern.compile()` 方法来编译你的正则表达式即可。它会根据你的 `String` 类型的正则表达式生成一个 `Pattern` 对象，把想要检索的字符串传入 `Pattern` 对象的 `matcher()` 方法，`matcher()` 方法会生成一个 `Matcher` 对象，它有很多功能可用（可以参考 `java.util.regext.Matcher` 的 JDK 文档）。
+
+`Pattern` 类还提供了一个`static`方法：
+
+```java
+static boolean matches(String regex, CharSequence input)
+```
+
+```java
+// 判断整个输入字符串是否匹配正则表达式模式
+boolean matches() 
+// 判断该字符串（不必是整个字符串）的起始部分是否能够匹配模式
+boolean lookingAt() 
+// 在 CharSequence 中查找多个匹配  
+boolean find() 
+boolean find(int start)
+```
+
+**组(Groups)** 是用括号划分的正则表达式，可以根据组的编号来引用某个组。组号为 0 表示整个表达式，组号 1 表示被第一对括号括起来的组，以此类推。
+
+`Matcher` 对象提供了一系列方法，用以获取与组相关的信息：
+
+- `public int groupCount()` 返回该匹配器的模式中的分组数目，组 0 不包括在内。
+- `public String group()` 返回前一次匹配操作（例如 `find()`）的第 0 组（整个匹配）。
+- `public String group(int i)` 返回前一次匹配操作期间指定的组号，如果匹配成功，但是指定的组没有匹配输入字符串的任何部分，则将返回 `null`。
+- `public int start(int group)` 返回在前一次匹配操作中寻找到的组的起始索引。
+- `public int end(int group)` 返回在前一次匹配操作中寻找到的组的最后一个字符索引加一的值。
+
+`Pattern` 类的 `compile()` 方法还有另一个版本，它接受一个标记参数，以调整匹配行为：
+
+```java
+Pattern Pattern.compile(String regex, int flag)
+```
+
+其中的 `flag` 来自以下 `Pattern` 类中的常量：
+
+| 编译标记                       | 效果                                                         |
+| ------------------------------ | ------------------------------------------------------------ |
+| `Pattern.CANON_EQ`             | 当且仅当两个字符的完全规范分解相匹配时，才认为它们是匹配的。例如，如果我们指定这个标记，表达式`\u003F`就会匹配字符串`?`。默认情况下，匹配不考虑规范的等价性 |
+| `Pattern.CASE_INSENSITIVE(?i)` | 默认情况下，大小写不敏感的匹配假定只有US-ASCII字符集中的字符才能进行。这个标记允许模式匹配不考虑大小写（大写或小写）。通过指定`UNICODE_CASE`标记及结合此标记。基于Unicode的大小写不敏感的匹配就可以开启了 |
+| `Pattern.COMMENTS(?x)`         | 在这种模式下，空格符将被忽略掉，并且以`#`开始直到行末的注释也会被忽略掉。通过嵌入的标记表达式也可以开启Unix的行模式 |
+| `Pattern.DOTALL(?s)`           | 在dotall模式下，表达式`.`匹配所有字符，包括行终止符。默认情况下，`.`不会匹配行终止符 |
+| `Pattern.MULTILINE(?m)`        | 在多行模式下，表达式`^`和`$`分别匹配一行的开始和结束。`^`还匹配输入字符串的开始，而`$`还匹配输入字符串的结尾。默认情况下，这些表达式仅匹配输入的完整字符串的开始和结束 |
+| `Pattern.UNICODE_CASE(?u)`     | 当指定这个标记，并且开启`CASE_INSENSITIVE`时，大小写不敏感的匹配将按照与Unicode标准相一致的方式进行。默认情况下，大小写不敏感的匹配假定只能在US-ASCII字符集中的字符才能进行 |
+| `Pattern.UNIX_LINES(?d)`       | 在这种模式下，在`.`、`^`和`$`的行为中，只识别行终止符`\n`    |
+
+- 替换操作
+
+> `replaceFirst(String replacement)` 以参数字符串 `replacement` 替换掉第一个匹配成功的部分；
+>
+> `replaceAll(String replacement)` 以参数字符串 `replacement` 替换所有匹配成功的部分；
+>
+> `appendReplacement(StringBuffer sbuf, String replacement)` 执行渐进式的替换，而不是像 `replaceFirst()` 和 `replaceAll()` 那样只替换第一个匹配或全部匹配。这是一个非常重要的方法。它允许你调用其他方法来生成或处理 `replacement`（`replaceFirst()` 和 `replaceAll()` 则只能使用一个固定的字符串），使你能够以编程的方式将目标分割成组，从而具备更强大的替换功能；
+>
+> `appendTail(StringBuffer sbuf)` 在执行了一次或多次 `appendReplacement()` 之后，调用此方法可以将输入字符串余下的部分复制到 `sbuf` 中。
+
+#### 3，字符串输入
+
+`StringReader` 将 `String` 转化为可读的流对象，然后用这个对象来构造 `BufferedReader` 对象，因为要使用 `BufferedReader` 的 `readLine()` 方法，最终可以使用 `input` 对象一次读取一行文本。
+
+`readLine()` 方法将一行输入转为 `String` 对象。`Java SE5` 新增了 `Scanner` 类。`Scanner` 的构造器可以接收任意类型的输入对象，包括 `File`、`InputStream`、`String` 或者 `Readable` 实现类。`Readable` 是 `Java SE5` 中新加入的一个接口，表示“具有 `read()` 方法的某种东西”。
+
+在 `Java` 引入正则表达式（`J2SE1.4`）和 `Scanner` 类（`Java SE5`）之前，分割字符串的唯一方法是使用  `StringTokenizer` 来分词。
+
+## 十二，类型信息
+
+#### 1，类型信息概念
+
+> `RTTI`（`RunTime Type Information`，运行时类型信息）能够在程序运行时发现和使用类型信息。
+
+多态层次结构的示例代码：
+
+```java
+package com.exam;
+
+import java.util.stream.Stream;
+
+/**
+ * 多态实现
+ *
+ * @author zhangbocheng
+ * @version v1.0
+ * @date 2020/11/9 23:55
+ */
+public class Shapes {
+
+    public static void main(String[] args) {
+        Stream.of(new Circle(), new Square(), new Triangle()).forEach(Shape::draw);
+    }
+}
+
+abstract class Shape {
+    void draw() {
+        System.out.println(this + ".draw()");
+    }
+
+    @Override
+    public abstract String toString();
+}
+
+
+class Circle extends Shape {
+    @Override
+    public String toString() {
+        return "Circle";
+    }
+}
+
+
+class Square extends Shape {
+    @Override
+    public String toString() {
+        return "Square";
+    }
+}
+
+
+class Triangle extends Shape {
+    @Override
+    public String toString() {
+        return "Triangle";
+    }
+}
+```
+
+`Stream` 实际上是把放入其中的所有对象都当做 `Object` 对象来持有，只是取元素时会自动将其类型转为 `Shape`。这也是 `RTTI` 最基本的使用形式，因为在 `Java` 中，所有类型转换的正确性检查都是在运行时进行的。这也正是 `RTTI` 的含义所在：在运行时，识别一个对象的类型。
+
+- `Class` 对象
+
+要理解 RTTI 在 Java 中的工作原理，首先必须知道类型信息在运行时是如何表示的。这项工作是由称为 **`Class`对象** 的特殊对象完成的，它包含了与类有关的信息。实际上，`Class` 对象就是用来创建该类所有"常规"对象的。Java 使用 `Class` 对象来实现 RTTI，即便是类型转换这样的操作都是用 `Class` 对象实现的。
 
 
 

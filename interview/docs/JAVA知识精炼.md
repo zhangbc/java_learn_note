@@ -6,7 +6,7 @@
 
 ## Java基础
 
-#### 1，面向对象基础
+#### 1. 面向对象基础
 
 1）面向对象和面向过程的区别
 
@@ -358,11 +358,11 @@ public static void swap(int a, int b) {
 >
 > 重写：发生在运行期，是子类对父类的允许访问的方法的实现过程进行重新编写。
 >
-> 1. > 1）返回值类型、方法名、参数列表必须相同，抛出的异常范围小于等于父类，访问修饰符范围大于等于父类；
->    >
->    > 2）如果父类方法访问修饰符为 `private/final/static` 则子类就不能重写该方法，但是被 `static` 修饰的方法能够被再次声明；
->    >
->    > 3）构造方法无法被重写。
+>> 1）返回值类型、方法名、参数列表必须相同，抛出的异常范围小于等于父类，访问修饰符范围大于等于父类；
+>>
+>> 2）如果父类方法访问修饰符为 `private/final/static` 则子类就不能重写该方法，但是被 `static` 修饰的方法能够被再次声明；
+>>
+>> 3）构造方法无法被重写。
 
 | 区别点     | 重载方法 | 重写方法                                       |
 | ---------- | -------- | ---------------------------------------------- |
@@ -931,7 +931,7 @@ public E poll() {
 >
 > **阻塞（BLOCKED）** 状态：线程正在运行的时候，被暂停，通常是为了等待某个时间的发生(比如说某项资源就绪)之后再继续运行。`sleep，suspend，wait` 等方法都可以导致线程阻塞；
 >
-> > 等待阻塞（`o.wait` -> 等待对列）
+> > 等待阻塞（`o.wait` -> 等待队列）
 > >
 > > > 运行(`running`)的线程执行 `o.wait()` 方法，`JVM` 会把该线程放入等待队列(`waitting queue`) 中。
 > >
@@ -954,6 +954,87 @@ public E poll() {
 > > > 优先级高的线程竞争到对象锁的概率大，假若某线程没有竞争到该对象锁，它还会留在锁池中，唯有线程再次调用 `wait()` 方法，它才会重新回到等待池中。而竞争到对象锁的线程则继续往下执行，直到执行完了 `synchronized` 代码块，它会释放掉该对象锁，这时锁池中的线程会继续竞争该对象锁。
 >
 > **死亡** 状态：如果一个线程的 `run` 方法执行结束或者调用 `stop` 方法后，该线程就会死亡。
+
+《Java 并发编程艺术》：
+
+| 状态名称      | 说明                                                         |
+| ------------- | ------------------------------------------------------------ |
+| NEW           | 初始状态，线程被创建，但是还没有调用 `start()` 方法          |
+| RUNNABLE      | 运行状态，`JAVA` 线程将操作系统中的就绪和运行状态统称为“运行中” |
+| BLOCKED       | 阻塞状态，表示线程阻塞于锁                                   |
+| WAITING       | 等待状态，表示线程进入等待状态，进入该状态表示当前线程需要等待其他线程做出一些动作（通知或者中断） |
+| TIMED_WAITING | 超时等待状态，该状态不同于 `WAITING` ，它是可以在指定的时间自行返回 |
+| TERMINATED    | 终止状态，表示当前线程已经执行完毕                           |
+
+`JDK1.8` 源码：
+
+```java
+
+public enum State {
+    /**
+     * Thread state for a thread which has not yet started.
+     */
+    NEW,
+
+    /**
+     * Thread state for a runnable thread.  A thread in the runnable
+     * state is executing in the Java virtual machine but it may
+     * be waiting for other resources from the operating system
+     * such as processor.
+     */
+    RUNNABLE,
+
+    /**
+     * Thread state for a thread blocked waiting for a monitor lock.
+     * A thread in the blocked state is waiting for a monitor lock
+     * to enter a synchronized block/method or
+     * reenter a synchronized block/method after calling
+     * {@link Object#wait() Object.wait}.
+     */
+    BLOCKED,
+
+    /**
+     * Thread state for a waiting thread.
+     * A thread is in the waiting state due to calling one of the
+     * following methods:
+     * <ul>
+     *   <li>{@link Object#wait() Object.wait} with no timeout</li>
+     *   <li>{@link #join() Thread.join} with no timeout</li>
+     *   <li>{@link LockSupport#park() LockSupport.park}</li>
+     * </ul>
+     *
+     * <p>A thread in the waiting state is waiting for another thread to
+     * perform a particular action.
+     *
+     * For example, a thread that has called <tt>Object.wait()</tt>
+     * on an object is waiting for another thread to call
+     * <tt>Object.notify()</tt> or <tt>Object.notifyAll()</tt> on
+     * that object. A thread that has called <tt>Thread.join()</tt>
+     * is waiting for a specified thread to terminate.
+     */
+    WAITING,
+
+    /**
+     * Thread state for a waiting thread with a specified waiting time.
+     * A thread is in the timed waiting state due to calling one of
+     * the following methods with a specified positive waiting time:
+     * <ul>
+     *   <li>{@link #sleep Thread.sleep}</li>
+     *   <li>{@link Object#wait(long) Object.wait} with timeout</li>
+     *   <li>{@link #join(long) Thread.join} with timeout</li>
+     *   <li>{@link LockSupport#parkNanos LockSupport.parkNanos}</li>
+     *   <li>{@link LockSupport#parkUntil LockSupport.parkUntil}</li>
+     * </ul>
+     */
+    TIMED_WAITING,
+
+    /**
+     * Thread state for a terminated thread.
+     * The thread has completed execution.
+     */
+    TERMINATED;
+}
+```
 
 #### 16. 线程池
 
@@ -1022,7 +1103,7 @@ public E poll() {
 >
 > > （1）`ArrayBlockingQueue`：基于数组的有界阻塞队列，按 `FIFO` 排序。新任务进来后，会放到该队列的队尾，有界的数组可以防止资源耗尽问题。当线程池中线程数量达到 `corePoolSize` 后，再有新任务进来，则会将任务放入该队列的队尾，等待被调度。如果队列已经是满的，则创建一个新线程，如果线程数量已经达到 `maxPoolSize`，则会执行拒绝策略；
 > >
-> > （2）`LinkedBlockingQuene`：基于链表的无界阻塞队列（其实最大容量为 `Interger.MAX`），按照 `FIFO` 排序。由于该队列的近似无界性，当线程池中线程数量达到 `corePoolSize` 后，再有新任务进来，会一直存入该队列，而不会去创建新线程直到 `maxPoolSize`，因此使用该工作队列时，参数 `maxPoolSize` 其实是不起作用的；
+> > （2）`LinkedBlockingQueue`：基于链表的无界阻塞队列（其实最大容量为 `Interger.MAX`），按照 `FIFO` 排序。由于该队列的近似无界性，当线程池中线程数量达到 `corePoolSize` 后，再有新任务进来，会一直存入该队列，而不会去创建新线程直到 `maxPoolSize`，因此使用该工作队列时，参数 `maxPoolSize` 其实是不起作用的；
 > >
 > > （3）`SynchronousQuene`：一个不缓存任务的阻塞队列，生产者放入一个任务必须等到消费者取出这个任务。也就是说新任务进来时，不会缓存，而是直接被调度执行该任务，如果没有可用线程，则创建新线程，如果线程数量达到 `maxPoolSize`，则执行拒绝策略；
 > >
@@ -1098,6 +1179,19 @@ public class BoundedExecutor {
 > ④ `newScheduledThreadPool(int corePoolSize)`：创建了一个固定长度的线程池，而且以延迟或定时的方式来执行任务，类似于 `Timer`。
 
 3）线程池有5种状态：`Running、ShutDown、Stop、Tidying、Terminated`。
+
+```java
+		 * The runState provides the main lifecycle control, taking on values:
+     *
+     *   RUNNING:  Accept new tasks and process queued tasks
+     *   SHUTDOWN: Don't accept new tasks, but process queued tasks
+     *   STOP:     Don't accept new tasks, don't process queued tasks,
+     *             and interrupt in-progress tasks
+     *   TIDYING:  All tasks have terminated, workerCount is zero,
+     *             the thread transitioning to state TIDYING
+     *             will run the terminated() hook method
+     *   TERMINATED: terminated() has completed
+```
 
 #### 17. `synchronized` 锁
 
