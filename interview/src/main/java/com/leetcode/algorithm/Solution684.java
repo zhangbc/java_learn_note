@@ -13,6 +13,6 @@ public class Solution684 {
             return new int[0];
         }
 
-
+        return new int[0];
     }
 }

@@ -4,7 +4,7 @@
 import os
 
 
-def rename_files(pfix='leetcode_', path=None):
+def rename_files(pfix='bg_', path=None):
     """
     批量更新文件夹名称
     :param pfix:

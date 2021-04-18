@@ -28,7 +28,7 @@ public class SortRadix extends Sort {
             }
 
             for (int k : array) {
-                int bucket = ((k % mod) / dev) + mod;
+                int bucket = (k % mod) / dev + mod;
                 counter.get(bucket).add(k);
             }
 

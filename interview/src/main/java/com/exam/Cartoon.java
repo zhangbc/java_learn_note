@@ -1,7 +1,5 @@
 package com.exam;
 
-import java.util.Arrays;
-
 /**
  * 三个层次的继承
  *

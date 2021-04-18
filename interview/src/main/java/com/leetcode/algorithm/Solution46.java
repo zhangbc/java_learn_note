@@ -50,7 +50,7 @@ public class Solution46 {
     }
 
     public static void main(String[] args) {
-        int[] arr = {1};
+        int[] arr = {1, 2, 3, 2};
         List<List<Integer>> array = new Solution46().permute(arr);
         for (List<Integer> item: array) {
             System.out.println(item.toString());

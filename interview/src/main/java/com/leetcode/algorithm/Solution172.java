@@ -10,7 +10,13 @@ package com.leetcode.algorithm;
  */
 public class Solution172 {
     public int trailingZeroes(int n) {
-        return 0;
+        int ans = 0;
+        while (n > 0) {
+            ans += n / 5;
+            n /= 5;
+        }
+
+        return ans;
     }
 
     public static void main(String[] args) {
