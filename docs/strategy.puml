@@ -1,0 +1,17 @@
+@startuml
+'https://plantuml.com/class-diagram
+
+class client {
+    + sort() : void
+}
+
+interface Comparator
+
+client -- Comparator
+
+skinparam groupInheritance 2
+class DogC extends Comparator
+class CatC1 extends Comparator
+class CatC2 extends Comparator
+class CatC3 extends Comparator
+@enduml

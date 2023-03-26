@@ -28,7 +28,7 @@ public class Mgr01 {
         // hasCode值是一致的，说明getInstance()是同一个实例
         for (int i = 0; i < count; i++) {
             new Thread(() ->
-                    System.out.println(Mgr07.getInstance().hashCode())
+                    System.out.println(Mgr01.getInstance().hashCode())
             ).start();
         }
     }

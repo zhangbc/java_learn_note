@@ -8,7 +8,9 @@ package com.team.singleton;
  * @date 9/13/22 12:40 AM
  **/
 public enum Mgr08 {
-
+    /**
+     * instance
+     */
     INSTANCE;
 
     public void m() {
