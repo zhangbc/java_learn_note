@@ -1,0 +1,18 @@
+@startuml
+'https://plantuml.com/class-diagram
+
+interface Movable
+class Car implements Movable
+class Plane implements Movable
+
+class Factory {
+    + crate(): Movable
+}
+class CarFactory extends Factory
+class PlaneFactory extends Factory
+
+Movable -- Factory
+CarFactory -- Car
+PlaneFactory -- Plane
+
+@enduml

@@ -1,0 +1,20 @@
+@startuml
+'https://plantuml.com/class-diagram
+
+abstract class AbstractFactory
+abstract class ModernFactory extends AbstractFactory
+abstract class MagicFactory extends AbstractFactory
+
+abstract class Weapon
+abstract class Food
+abstract class Vehicle
+
+AbstractFactory --> Weapon
+AbstractFactory --> Food
+AbstractFactory --> Vehicle
+
+class AK47 extends Weapon
+class Car extends Vehicle
+class Bread extends Food
+
+@enduml
